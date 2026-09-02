@@ -73,6 +73,10 @@ The answer schema still **rejects** `chat`/`recipient`/`to`/`send`/`live`/`draft
   returns, so `_post_phase` closing the browser immediately dropped the
   message — `summary_posted` in the log, nothing in the chat. Drafts never hit
   this because `propose` already reads back to find `marker_id`.
+- **Read-backs compare fingerprints, not raw text.** WhatsApp renders emoji as
+  `<img>` and `inner_text` drops them: a note posted as `📋 GROUP DIGEST 13:16`
+  reads back as `GROUP DIGEST 13:16`. Matching raw text declared every digest
+  undelivered and posted it again — ten duplicates in one afternoon.
 - **A digest never repeats itself.** `watermarks.py` keeps the last summarised
   `msg_id` per group in `.wa-agent/digest_seen.json`; GROUPSUM summarises only
   what arrived after it, and posts "nothing new" rather than restating. The
