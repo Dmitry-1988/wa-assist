@@ -96,3 +96,46 @@ def test_the_digest_prompt_is_not_given_the_reply_voice(config):
     digest = build_summary_prompt([{"chat": "G", "messages": []}], "sum-1")
     assert "writing AS the user" not in digest
     assert "ENGLISH" in digest
+
+
+# --- the drafter may report facts, never create obligations ----------------
+
+def test_commitments_are_forbidden(config):
+    """A draft answered "Ага, вечером скину)" and proposed two nights away.
+    Neither was ever agreed to. The prompt forbade inventing FACTS and said
+    nothing about inventing COMMITMENTS."""
+    text = reply(config)
+    assert "COMMITMENTS ARE NOT YOURS TO MAKE" in text
+    assert "You may say what IS true. You may not decide" in text
+
+
+def test_promises_plans_and_spending_are_named_explicitly(config):
+    text = reply(config)
+    for forbidden in ("promise anything on the user's behalf",
+                      "accept, decline or propose plans",
+                      "bookings, spending, invitations or attendance"):
+        assert forbidden in text
+
+
+def test_a_calendar_does_not_imply_willingness(config):
+    """Free time is not consent to fill it."""
+    assert "does not tell you what the\nuser is willing to do" in reply(config)
+
+
+def test_the_decision_is_handed_back_not_taken(config):
+    text = reply(config)
+    assert "hand\nthe decision back as one short question" in text
+
+
+def test_answering_is_the_one_promise_still_allowed(config):
+    """Over-correcting into refusing "гляну и скажу" would break the
+    already-tested honest-ignorance path."""
+    text = reply(config)
+    assert "The one promise you may make is about answering" in text
+    assert "гляну и скажу" in text
+
+
+def test_the_digest_is_not_given_the_commitment_rule():
+    """A digest reports what a group said; it never speaks for the user."""
+    assert "COMMITMENTS ARE NOT YOURS" not in build_summary_prompt(
+        [{"chat": "G", "messages": []}], "sum-1")
