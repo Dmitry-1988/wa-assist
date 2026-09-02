@@ -1,0 +1,33 @@
+[project]
+name = "wa-assist"
+version = "0.1.0"
+description = "A WhatsApp reply assistant: a daemon drives WhatsApp Web, a sandboxed Claude run drafts, and nothing is sent without your explicit approval."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "playwright>=1.62.0",
+]
+
+[project.scripts]
+wa-login = "wa_session.cli:main"
+wa-unread = "wa_session.cli:unread_main"
+wa-read = "wa_session.cli:read_main"
+wa-agent = "wa_session.agent_cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/wa_session"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "browser: test launches a real Chromium via Playwright (slow)",
+]
