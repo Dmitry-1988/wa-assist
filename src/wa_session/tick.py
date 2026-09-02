@@ -383,6 +383,21 @@ def _run_for(item: QueueItem, config: Config, outbox) -> dict:
     return run_drafter(item, config)
 
 
+def _fingerprint(text: str) -> str:
+    """Letters, digits and single spaces only, casefolded.
+
+    WhatsApp renders emoji as <img> elements, and `inner_text` does not include
+    their alt text -- a note posted as "📋 GROUP DIGEST 13:16" reads back as
+    "GROUP DIGEST 13:16". Matching on the raw text therefore never succeeded,
+    so `post_note` declared every digest undelivered and the next tick posted it
+    again: ten identical digests in one afternoon. Comparing on what actually
+    survives the round trip is the fix; punctuation goes too, since "·" and "—"
+    are no more guaranteed than the emoji.
+    """
+    kept = (ch if (ch.isalnum() or ch.isspace()) else " " for ch in text)
+    return " ".join("".join(kept).split()).casefold()
+
+
 def post_note(page, text: str, settle_s: float = 12.0) -> str:
     """Post a note into the self-chat and CONFIRM it is really there.
 
@@ -409,14 +424,12 @@ def post_note(page, text: str, settle_s: float = 12.0) -> str:
         if not getattr(outcome, "ok", True):
             raise RuntimeError(f"note not posted: {getattr(outcome, 'detail', '')}")
 
-    # The first line is enough to identify it and survives the composer's own
-    # whitespace handling.
-    needle = " ".join(text.strip().splitlines()[0].split())[:40]
+    needle = _fingerprint(text)[:60]
     deadline = time.monotonic() + settle_s
     while True:
         try:
             for message in reversed(read_selfchat(page, limit=8)):
-                if needle and needle in " ".join((message.text or "").split()):
+                if needle and needle in _fingerprint(message.text or ""):
                     return message.msg_id
         except Exception:
             pass

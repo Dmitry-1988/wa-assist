@@ -298,3 +298,46 @@ def test_a_failed_digest_keeps_its_queue_item_and_watermarks(config, monkeypatch
     assert [i.queue_id for i in read_queue(config)] == ["sum-1"], "item must survive"
     assert read_watermarks(config) == {}, "watermarks must not advance"
     assert any("summary_post_failed" in a for a in result["actions"])
+
+
+# --- 8. the read-back must match what actually survives the round trip -----
+
+def test_an_emoji_prefixed_note_is_recognised_on_read_back():
+    """WhatsApp renders emoji as <img>; inner_text drops them. Matching raw
+    text meant every digest looked undelivered and was posted again -- ten
+    identical digests in one afternoon, 2026-09-02."""
+    from wa_session.tick import _fingerprint
+    posted = "📋 GROUP DIGEST 13:16\n\nאקווה פמילי\n· Neighbour asks about a technician"
+    readback = "GROUP DIGEST 13:16 אקווה פמילי · Neighbour asks about a technician"
+    assert _fingerprint(posted)[:60] in _fingerprint(readback)
+
+
+def test_punctuation_that_may_not_survive_is_ignored_too():
+    from wa_session.tick import _fingerprint
+    assert _fingerprint("· one — two") == _fingerprint("one two")
+
+
+def test_different_notes_still_do_not_match():
+    """The check must not become so loose that anything counts as delivery."""
+    from wa_session.tick import _fingerprint
+    a = _fingerprint("📋 GROUP DIGEST 13:16 building neighbours")[:60]
+    assert a not in _fingerprint("⚠️ I cannot draft a reply to Ann")
+
+
+def test_a_note_posted_with_emoji_is_confirmed_end_to_end(monkeypatch):
+    from wa_session.tick import post_note
+
+    class M:
+        def __init__(self, text):
+            self.text, self.msg_id = text, "m9"
+
+    class Page:
+        def wait_for_timeout(self, ms): pass
+
+    import wa_session.selfchat as selfchat
+    monkeypatch.setattr(selfchat, "post",
+                        lambda p, text, dry_run=False: _Result(True, detail="sent"))
+    # the chat echoes the note back WITHOUT its emoji, as WhatsApp does
+    monkeypatch.setattr(selfchat, "read",
+                        lambda p, limit=60: [M("GROUP DIGEST 13:16 building")])
+    assert post_note(Page(), "📋 GROUP DIGEST 13:16\n\nbuilding") == "m9"
