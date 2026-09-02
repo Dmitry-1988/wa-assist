@@ -15,12 +15,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 
 from .agent import (
     agent_dir,
+    draft_path,
     propose,
     read_chat,
     allowlist_path,
@@ -33,7 +35,7 @@ from .agent import (
     retire_draft,
 )
 from .allowlist import Allowlist
-from .approval import Decision, Journal, is_groupsum
+from .approval import Decision, Journal, is_groupsum, latinize
 from .config import WHATSAPP_URL, Config, load_config
 from .interstitials import dismiss
 from .drafter import run_drafter, run_summarizer
@@ -133,9 +135,22 @@ def _handle_pending(page, config: Config, entry: dict, result: dict) -> None:
         retire_draft(config, draft_id, "rejected in self-chat")
         result["actions"].append({"draft_id": draft_id, "rejected": True})
     elif command.decision is Decision.EDIT:
-        result["actions"].append(
-            _queue_revision(config, entry, command.instructions)
-        )
+        outcome = _queue_revision(config, entry, command.instructions)
+        result["actions"].append(outcome)
+        # A redraft takes a tick plus an LLM run. Without a word, that is
+        # several minutes of silence indistinguishable from a dead daemon.
+        if "edit_refused" in outcome:
+            note = (f"✋ {draft_id}: {outcome['edit_refused']}\n"
+                    "The draft is withdrawn either way.")
+        else:
+            note = (f"✏️ Redrafting {draft_id} (revision {outcome['revision']}): "
+                    f"{command.instructions}\n\n"
+                    f"{draft_id} is withdrawn and can no longer be approved. "
+                    "The new draft arrives shortly, under a new id.")
+        try:
+            post_note(page, note)
+        except Exception as exc:
+            result["actions"].append({"edit_ack_failed": str(exc)})
     elif command.decision is Decision.AMBIGUOUS:
         # Never guess at an unclear approval.
         result["actions"].append({
@@ -143,6 +158,56 @@ def _handle_pending(page, config: Config, entry: dict, result: dict) -> None:
             "needs_attention": "ambiguous",
             "instructions": command.instructions,
         })
+
+
+_STALE_COMMAND = re.compile(
+    r"^(?:ok|approve|send|no|cancel|drop|reject|edit)\s+(#[A-Za-z0-9-]{2,10})",
+    re.IGNORECASE)
+
+
+def _answer_stale_commands(page, config: Config, result: dict) -> None:
+    """Reply when a command names a draft that is no longer live.
+
+    A sent, withdrawn or expired draft is filtered out of `pending_drafts`, so
+    `OK #XXX` on one reaches no code path whatsoever -- no send, no note,
+    nothing in the log. From the user's side that is exactly what a broken
+    daemon looks like, which is the failure that cost most of 2026-09-02.
+    """
+    from .selfchat import read as read_selfchat
+
+    journal = Journal(journal_path(config))
+    live = {entry["draft_id"] for entry in pending_drafts(config)}
+    try:
+        messages = read_selfchat(page, limit=12)
+    except Exception:
+        return
+
+    for message in messages:
+        # Latinised so a Russian-layout "ОК #XXX" is understood here too.
+        match = _STALE_COMMAND.match(latinize((message.text or "").strip()))
+        if not match:
+            continue
+        draft_id = match.group(1).upper()
+        if draft_id in live or journal.command_seen(message.msg_id):
+            continue
+
+        if journal.already_sent(draft_id):
+            why = "was already sent"
+        elif journal.is_retired(draft_id):
+            why = "was withdrawn — you rejected it, or an EDIT superseded it"
+        elif draft_path(config, draft_id).exists():
+            why = "has expired"
+        else:
+            continue      # never a draft of ours; stay quiet
+
+        try:
+            post_note(page, f"⚠️ {draft_id} {why}, so that command did nothing. "
+                            "Nothing was sent.")
+        except Exception as exc:
+            result["actions"].append({"stale_notice_failed": str(exc)})
+            continue
+        journal.record_command(message.msg_id, Decision.NONE, draft_id)
+        result["actions"].append({"stale_command": draft_id, "reason": why})
 
 
 def _drafting_phase(config: Config, result: dict) -> bool:
@@ -223,6 +288,7 @@ def _browser_phase(config: Config, result: dict) -> dict:
                     {"draft_id": entry.get("draft_id"),
                      "poll_failed": f"{type(exc).__name__}: {exc}"})
 
+        _answer_stale_commands(page, config, result)
         _post_ready_drafts(page, config, result)
         _post_ready_summaries(page, config, result)
 

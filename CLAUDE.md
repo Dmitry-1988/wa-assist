@@ -55,6 +55,10 @@ The answer schema still **rejects** `chat`/`recipient`/`to`/`send`/`live`/`draft
   unambiguous when an old draft is still visible above it in the chat.
 - The revision count lives on the Draft and is carried through
   `propose`, or `MAX_REVISIONS` is unreachable and an edit loop is unbounded.
+- **A command never vanishes silently.** An EDIT is acknowledged the moment it
+  is accepted, and a command naming a sent, withdrawn or expired draft gets a
+  one-time reply saying so — those drafts are filtered out of `pending_drafts`,
+  so without this they reach no code path at all and look like a dead daemon.
 - `propose`/`deliver` refuse any chat not in `reply` mode.
 - Recipient verified on two independent signals (header title + composer
   aria-label); any conflict refuses.
