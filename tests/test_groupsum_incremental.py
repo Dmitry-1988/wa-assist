@@ -22,9 +22,17 @@ def config(tmp_path) -> Config:
     return cfg
 
 
+class _Msg:
+    def __init__(self, text, msg_id):
+        self.text, self.msg_id = text, msg_id
+
+
 class FakePage:
     def __init__(self):
         self.posted: list[str] = []
+
+    def wait_for_timeout(self, ms):
+        pass
 
 
 CHATS = {
@@ -46,6 +54,9 @@ def fakes(monkeypatch):
     import wa_session.selfchat as selfchat
     monkeypatch.setattr(selfchat, "post",
                         lambda page, text, dry_run=False: page.posted.append(text))
+    monkeypatch.setattr(selfchat, "read",
+                        lambda page, limit=60: [_Msg(t, f"m{i}")
+                                                for i, t in enumerate(page.posted)])
 
 
 def test_a_first_digest_takes_everything(config):

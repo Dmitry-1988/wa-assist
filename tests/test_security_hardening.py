@@ -235,12 +235,46 @@ def test_a_dry_run_note_is_treated_as_not_posted(monkeypatch):
         post_note(object(), "hello")
 
 
-def test_a_real_post_is_accepted(monkeypatch):
+class _Echo:
+    """A page whose self-chat contains whatever was posted to it."""
+
+    def __init__(self, echo=True):
+        self.sent, self.echo = [], echo
+
+    def wait_for_timeout(self, ms):
+        pass
+
+
+def _wire(monkeypatch, page):
     import wa_session.selfchat as selfchat
-    from wa_session.tick import post_note
+
+    class M:
+        def __init__(self, text):
+            self.text, self.msg_id = text, "m1"
+
     monkeypatch.setattr(selfchat, "post",
-                        lambda page, text, dry_run=False: _Result(True, detail="sent"))
-    post_note(object(), "hello")
+                        lambda p, text, dry_run=False: (p.sent.append(text)
+                                                        or _Result(True, detail="sent")))
+    monkeypatch.setattr(selfchat, "read",
+                        lambda p, limit=60: [M(t) for t in p.sent] if p.echo else [])
+
+
+def test_a_real_post_is_accepted(monkeypatch):
+    from wa_session.tick import post_note
+    page = _Echo()
+    _wire(monkeypatch, page)
+    assert post_note(page, "hello") == "m1"
+
+
+def test_a_note_that_never_appears_is_not_treated_as_delivered(monkeypatch):
+    """`_post_phase` closes the browser right after posting; a context torn
+    down before WhatsApp transmitted dropped the message while the send still
+    reported success. Reading it back is the only proof."""
+    from wa_session.tick import post_note
+    page = _Echo(echo=False)
+    _wire(monkeypatch, page)
+    with pytest.raises(RuntimeError, match="never appeared"):
+        post_note(page, "hello", settle_s=0.05)
 
 
 def test_a_failed_digest_keeps_its_queue_item_and_watermarks(config, monkeypatch):

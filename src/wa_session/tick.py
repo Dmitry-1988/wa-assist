@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -382,26 +383,49 @@ def _run_for(item: QueueItem, config: Config, outbox) -> dict:
     return run_drafter(item, config)
 
 
-def post_note(page, text: str) -> None:
-    """Post a note into the self-chat, raising unless it really went out.
+def post_note(page, text: str, settle_s: float = 12.0) -> str:
+    """Post a note into the self-chat and CONFIRM it is really there.
 
-    `selfchat.post` RETURNS a SendResult; it does not raise when the send is
-    refused after the click ("composer still holds text after send") or when a
-    caller leaves dry_run on. Every notice site here ignored that return value,
-    so on 2026-09-02 a group digest was logged as `summary_posted`, its queue
-    item cleared and its watermarks advanced -- while nothing was ever posted.
-    Nine messages were marked seen and lost. Checking the result is the whole
-    difference between "we tried" and "the user has it".
+    Two failures made this necessary, both seen in production:
+
+    * `selfchat.post` RETURNS a SendResult and does not raise when a send is
+      refused after the click. Ignoring it marked a digest delivered while
+      nothing was posted.
+    * Even on a genuine "sent", the message is not necessarily transmitted when
+      the call returns. `_post_phase` closes the browser as soon as posting is
+      done, and a context torn down that quickly dropped the message on the
+      floor -- `summary_posted` in the log, nothing in the chat. Drafts never
+      hit this because `propose` reads its message back to find `marker_id`,
+      which both proves delivery and holds the page open.
+
+    So the note is read back until it appears. Returns its message id.
     """
-    from .selfchat import post as post_selfchat
+    from .selfchat import post as post_selfchat, read as read_selfchat
 
     outcome = post_selfchat(page, text)
-    if outcome is None:            # test doubles return nothing
-        return
-    if getattr(outcome, "dry_run", False):
-        raise RuntimeError("note was a dry run; nothing was posted")
-    if not getattr(outcome, "ok", True):
-        raise RuntimeError(f"note not posted: {getattr(outcome, 'detail', '')}")
+    if outcome is not None:
+        if getattr(outcome, "dry_run", False):
+            raise RuntimeError("note was a dry run; nothing was posted")
+        if not getattr(outcome, "ok", True):
+            raise RuntimeError(f"note not posted: {getattr(outcome, 'detail', '')}")
+
+    # The first line is enough to identify it and survives the composer's own
+    # whitespace handling.
+    needle = " ".join(text.strip().splitlines()[0].split())[:40]
+    deadline = time.monotonic() + settle_s
+    while True:
+        try:
+            for message in reversed(read_selfchat(page, limit=8)):
+                if needle and needle in " ".join((message.text or "").split()):
+                    return message.msg_id
+        except Exception:
+            pass
+        if time.monotonic() >= deadline:
+            raise RuntimeError(
+                "note was reported sent but never appeared in the self-chat "
+                f"within {settle_s:g}s -- treating it as not delivered"
+            )
+        page.wait_for_timeout(500)
 
 
 def _post_ready_summaries(page, config: Config, result: dict) -> int:
