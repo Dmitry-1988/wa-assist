@@ -23,7 +23,7 @@ def render(chromium):
         page.route(
             "https://web.whatsapp.test/**",
             lambda route: route.fulfill(
-                content_type="text/html", body=f"<html><body>{body}</body></html>"
+                content_type="text/html; charset=utf-8", body=f"<html><body>{body}</body></html>"
             ),
         )
         page.goto("https://web.whatsapp.test/")

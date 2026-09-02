@@ -76,7 +76,10 @@ The answer schema still **rejects** `chat`/`recipient`/`to`/`send`/`live`/`draft
 - **Read-backs compare fingerprints, not raw text.** WhatsApp renders emoji as
   `<img>` and `inner_text` drops them: a note posted as `📋 GROUP DIGEST 13:16`
   reads back as `GROUP DIGEST 13:16`. Matching raw text declared every digest
-  undelivered and posted it again — ten duplicates in one afternoon.
+  undelivered and posted it again — ten duplicates in one afternoon. Covered by
+  `test_readback_browser.py`, which renders emoji as `<img>` in a real DOM: the
+  fakes elsewhere echo back what was posted, which is exactly what WhatsApp
+  does not do.
 - **A digest never repeats itself.** `watermarks.py` keeps the last summarised
   `msg_id` per group in `.wa-agent/digest_seen.json`; GROUPSUM summarises only
   what arrived after it, and posts "nothing new" rather than restating. The
