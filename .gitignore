@@ -1,0 +1,26 @@
+# --- WhatsApp session data: NEVER commit ------------------------------------
+# The browser profile holds a live WhatsApp Web credential. Anyone who obtains
+# it can read and send messages as you. See README.md -> Security.
+.wa-profile/
+.wa-state/
+.wa-export/
+.wa-agent/
+
+# --- Python -----------------------------------------------------------------
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+
+# --- Tooling ----------------------------------------------------------------
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# --- Tooling / IDE / OS -----------------------------------------------------
+.claude/
+.idea/
+.DS_Store
