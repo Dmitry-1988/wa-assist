@@ -13,7 +13,7 @@
     launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.example.wa-agent.plist
 
   It must run in the Aqua GUI session: it drives a real Chromium window
-  (minimised via CDP, not headless -- WhatsApp Web does not render headless).
+  (minimised via CDP, not headless; WhatsApp Web does not render headless).
 -->
 <plist version="1.0">
 <dict>
@@ -46,8 +46,8 @@
 
   <key>EnvironmentVariables</key>
   <dict>
-    <!-- launchd gives a service a minimal PATH; binaries are resolved in code,
-         but uv itself must be findable here. -->
+    <!-- launchd gives a service a minimal PATH; binaries are resolved in
+         code, but uv itself must be findable here. -->
     <key>PATH</key>
     <string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
     <key>WA_DAEMON_LABEL</key>
