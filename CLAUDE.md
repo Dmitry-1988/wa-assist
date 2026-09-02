@@ -53,6 +53,12 @@ The answer schema still **rejects** `chat`/`recipient`/`to`/`send`/`live`/`draft
 - Recipient verified on two independent signals (header title + composer
   aria-label); any conflict refuses.
 - Never infer availability from one calendar. Query all three (see memory).
+- **The drafter reports facts; it never creates obligations.** No promises
+  ("скину вечером"), no accepting or proposing plans, dates, bookings, spending
+  or attendance, no agreeing to a request. A free calendar is not consent to
+  fill it. If a full answer needs a decision, it states the facts and hands the
+  decision back as one short question. The single allowed promise is "гляну и
+  скажу", because the user already asked it to look.
 - **Replies read like the user texting, not like a report.** One or two
   sentences, answer first, every part of the question answered — and NO
   provenance in the body: no naming a calendar or an email, no "I checked", no
