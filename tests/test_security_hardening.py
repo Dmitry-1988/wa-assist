@@ -203,3 +203,64 @@ def test_a_failing_draft_does_not_kill_the_tick(config, monkeypatch):
         result["actions"].append({"draft_id": "#AAA",
                                   "poll_failed": f"{type(exc).__name__}: {exc}"})
     assert any("poll_failed" in a for a in result["actions"])
+
+
+# --- 7. a note that was not posted must never count as delivered -----------
+
+class _Result:
+    def __init__(self, ok, dry_run=False, detail=""):
+        self.ok, self.dry_run, self.detail = ok, dry_run, detail
+
+
+def test_a_refused_note_raises_instead_of_passing_silently(monkeypatch):
+    """selfchat.post RETURNS a SendResult; it does not raise when the send is
+    refused after the click. Ignoring it marked a digest delivered, cleared its
+    queue item and advanced its watermarks while nothing was posted -- nine
+    messages seen and lost, 2026-09-02."""
+    import wa_session.selfchat as selfchat
+    from wa_session.tick import post_note
+    monkeypatch.setattr(selfchat, "post",
+                        lambda page, text, dry_run=False: _Result(
+                            False, detail="composer still holds text after send"))
+    with pytest.raises(RuntimeError, match="not posted"):
+        post_note(object(), "hello")
+
+
+def test_a_dry_run_note_is_treated_as_not_posted(monkeypatch):
+    import wa_session.selfchat as selfchat
+    from wa_session.tick import post_note
+    monkeypatch.setattr(selfchat, "post",
+                        lambda page, text, dry_run=False: _Result(True, dry_run=True))
+    with pytest.raises(RuntimeError, match="dry run"):
+        post_note(object(), "hello")
+
+
+def test_a_real_post_is_accepted(monkeypatch):
+    import wa_session.selfchat as selfchat
+    from wa_session.tick import post_note
+    monkeypatch.setattr(selfchat, "post",
+                        lambda page, text, dry_run=False: _Result(True, detail="sent"))
+    post_note(object(), "hello")
+
+
+def test_a_failed_digest_keeps_its_queue_item_and_watermarks(config, monkeypatch):
+    """The recovery property: nothing is marked seen until the user has it."""
+    import wa_session.selfchat as selfchat
+    from wa_session.pipeline import QueueItem, write_queue_item, write_submission, \
+        DraftSubmission, read_queue
+    from wa_session.tick import _post_ready_summaries
+    from wa_session.watermarks import read_watermarks
+
+    item = QueueItem(queue_id="sum-1", chat="__summary__",
+                     messages=[{"chat": "G", "messages": [{"msg_id": "m1"}]}])
+    write_queue_item(config, item)
+    write_submission(config, "sum-1",
+                     DraftSubmission(queue_id="sum-1", body="digest", sources=[]))
+    monkeypatch.setattr(selfchat, "post",
+                        lambda page, text, dry_run=False: _Result(False, detail="refused"))
+
+    result = {"actions": []}
+    assert _post_ready_summaries(object(), config, result) == 0
+    assert [i.queue_id for i in read_queue(config)] == ["sum-1"], "item must survive"
+    assert read_watermarks(config) == {}, "watermarks must not advance"
+    assert any("summary_post_failed" in a for a in result["actions"])

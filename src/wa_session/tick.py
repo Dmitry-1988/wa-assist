@@ -340,9 +340,7 @@ def _collect_group_messages(page, config: Config, result: dict) -> str | None:
                      + "\n\nTo include one:\n"
                      '  uv run wa-agent allow "<name>" --group --mode summarize')
         try:
-            from .selfchat import post as post_selfchat
-
-            post_selfchat(page, note)
+            post_note(page, note)
             result["actions"].append({"groupsum": "nothing new",
                                       "unmonitored_unread": [m[0] for m in missing]})
         except Exception as exc:
@@ -384,6 +382,28 @@ def _run_for(item: QueueItem, config: Config, outbox) -> dict:
     return run_drafter(item, config)
 
 
+def post_note(page, text: str) -> None:
+    """Post a note into the self-chat, raising unless it really went out.
+
+    `selfchat.post` RETURNS a SendResult; it does not raise when the send is
+    refused after the click ("composer still holds text after send") or when a
+    caller leaves dry_run on. Every notice site here ignored that return value,
+    so on 2026-09-02 a group digest was logged as `summary_posted`, its queue
+    item cleared and its watermarks advanced -- while nothing was ever posted.
+    Nine messages were marked seen and lost. Checking the result is the whole
+    difference between "we tried" and "the user has it".
+    """
+    from .selfchat import post as post_selfchat
+
+    outcome = post_selfchat(page, text)
+    if outcome is None:            # test doubles return nothing
+        return
+    if getattr(outcome, "dry_run", False):
+        raise RuntimeError("note was a dry run; nothing was posted")
+    if not getattr(outcome, "ok", True):
+        raise RuntimeError(f"note not posted: {getattr(outcome, 'detail', '')}")
+
+
 def _post_ready_summaries(page, config: Config, result: dict) -> int:
     """Post finished group digests into the self-chat as plain notes.
 
@@ -409,10 +429,10 @@ def _post_ready_summaries(page, config: Config, result: dict) -> int:
         note = (f"📋 GROUP DIGEST {stamp}\n\n{submission.body}\n\n"
                 + "\n".join(f"· {src}" for src in submission.sources))
         try:
-            from .selfchat import post as post_selfchat
-
-            post_selfchat(page, note)
+            post_note(page, note)
         except Exception as exc:
+            # Leave the item queued and the watermarks untouched: a digest that
+            # did not arrive must be retried, never marked delivered.
             result["actions"].append(
                 {"queue_id": item.queue_id, "summary_post_failed": str(exc)}
             )
@@ -486,8 +506,6 @@ def _report_stalled_items(page, config: Config, result: dict) -> None:
     incoming message has already been marked read, so from the other side it
     looks answered-and-ignored while the queue quietly spins.
     """
-    from .selfchat import post as post_selfchat
-
     for item in read_queue(config):
         if item.queue_id.startswith(SUMMARY_PREFIX):
             continue
@@ -500,7 +518,7 @@ def _report_stalled_items(page, config: Config, result: dict) -> None:
             f"draft it as soon as access returns. Nothing has been sent."
         )
         try:
-            post_selfchat(page, note)
+            post_note(page, note)
         except Exception as exc:
             result["actions"].append({"stall_notice_failed": str(exc)})
             continue
@@ -523,10 +541,8 @@ def _rotation_blocks(page, config: Config, result: dict) -> bool:
 
     threshold = due_warning(config, state)
     if threshold is not None:
-        from .selfchat import post as post_selfchat
-
         try:
-            post_selfchat(page, render_warning(config, state))
+            post_note(page, render_warning(config, state))
         except Exception as exc:
             result["actions"].append({"rotation_warning_failed": str(exc)})
         else:
