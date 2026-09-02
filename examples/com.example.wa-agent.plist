@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  One unattended cycle every 300 seconds.
+
+  Before installing, change:
+    * the Label, if you want your own (set WA_DAEMON_LABEL to match)
+    * WorkingDirectory      -> where you cloned this
+    * the first argument    -> output of `which uv`
+    * StandardOut/ErrorPath -> inside that same directory
+
+  launchd caches this file at bootstrap, so after editing it:
+    launchctl bootout   gui/$(id -u)/com.example.wa-agent
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.example.wa-agent.plist
+
+  It must run in the Aqua GUI session: it drives a real Chromium window
+  (minimised via CDP, not headless -- WhatsApp Web does not render headless).
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.example.wa-agent</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/uv</string>
+    <string>run</string>
+    <string>--directory</string>
+    <string>/Users/CHANGE-ME/wa-assist</string>
+    <string>wa-agent</string>
+    <string>tick</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/CHANGE-ME/wa-assist</string>
+
+  <key>StartInterval</key>
+  <integer>300</integer>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>/Users/CHANGE-ME/wa-assist/.wa-agent/daemon.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/CHANGE-ME/wa-assist/.wa-agent/daemon.err.log</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <!-- launchd gives a service a minimal PATH; binaries are resolved in code,
+         but uv itself must be findable here. -->
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>WA_DAEMON_LABEL</key>
+    <string>com.example.wa-agent</string>
+  </dict>
+</dict>
+</plist>

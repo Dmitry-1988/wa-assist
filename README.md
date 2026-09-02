@@ -1,158 +1,216 @@
-# wa-session
+# wa-assist
 
-Opens WhatsApp Web in a Chromium browser that remembers your login, so you scan
-the QR code once instead of every run. The session is rotated automatically
-every 24 hours.
+A WhatsApp reply assistant that will not send anything without you saying so.
 
-This version **only logs in**. It does not read, extract, or send messages.
+A launchd daemon drives WhatsApp Web through Playwright on a persistent
+Chromium profile. When an allowlisted contact writes to you, a headless Claude
+run drafts a reply using your Gmail and Calendar, and posts it into **your own
+WhatsApp self-chat**. Nothing is delivered until you reply `OK #XXX` there.
+
+```
+Ann: remind me when we drove to Max's wedding?
+        │
+        ▼  daemon captures the chat, queues it
+   Claude drafts, read-only Gmail + Calendar, no way to reach WhatsApp
+        │
+        ▼  posted to YOUR self-chat
+   DRAFT #47Q → Ann
+   Wed 3 June. And yes, we parked at the discounted rate — 8 shekels.
+   OK #47Q | EDIT #47Q <changes> | NO #47Q     expires 21:26
+        │
+        ▼  you type OK #47Q
+   delivered
+```
+
+---
+
+## Read this before you install it
+
+**This automates WhatsApp Web, which is against WhatsApp's Terms of Service.**
+Accounts have been banned for less. This is a personal experiment, not a
+product; run it on an account you can afford to lose, and do not deploy it for
+anyone who has not accepted that risk themselves.
+
+**Reading a chat is irreversible and visible.** To draft a reply the daemon
+must open the chat, which marks it read and sends read receipts to the sender —
+*before* any draft exists. Rejecting the draft does not undo it, and the chat is
+no longer unread, so nothing re-queues it. See `messages.py`.
+
+**Every draft is a paid Claude run.** A message arriving in an allowlisted chat
+costs an API call. So does each `GROUPSUM`.
+
+**macOS only.** It depends on launchd, `osascript`, and minimising Chromium
+through CDP.
+
+---
+
+## What it does and does not do
+
+| | daemon (`wa-agent tick`) | drafter (`claude -p`) |
+|---|---|---|
+| WhatsApp | every action | **none** |
+| Gmail / Calendar | none | read-only, via MCP |
+| Filesystem | full | **none** |
+| Composes text | never | yes |
+| Chooses recipient | yes, from the queue item | **never** |
+
+The drafter has no shell, no filesystem and no way to reach WhatsApp, so it
+cannot post an approval or send its own draft. That is structural, not a rule
+it is asked to follow — see [SECURITY.md](SECURITY.md), including a fixed
+finding where it *could* write the code the daemon executes.
+
+Chats are opt-in, per chat, in one of two modes:
+
+- **`reply`** — drafts are written and, once you approve, sent.
+- **`summarize`** — digest only. `propose` and `deliver` refuse any chat that is
+  not in `reply` mode, so a group can never be replied to by accident.
+
+---
 
 ## Setup
 
-Requires [uv](https://docs.astral.sh/uv/). Everything else is installed for you.
+Requires [uv](https://docs.astral.sh/uv/) and the
+[Claude Code CLI](https://docs.claude.com/en/docs/claude-code).
+
+### 1. Install
 
 ```bash
 uv sync
 uv run playwright install chromium
 ```
 
-## Run
+### 2. Link WhatsApp
 
 ```bash
 uv run wa-login
 ```
 
-**First run** — a Chromium window opens on WhatsApp Web showing a QR code. On
-your phone: WhatsApp → Settings → Linked Devices → Link a Device → scan it.
-Once the chat list appears the session is saved. Close the window when done.
-
-**Later runs, same day** — the window opens already logged in.
-
-**Later runs, more than 24h since the last scan** — the session is rotated:
-the tool unlinks this device through WhatsApp Web, deletes the profile, and
-shows you a fresh QR code to scan.
-
-```
-$ uv run wa-login
-  profile age: 27h — exceeds 24h rotation policy
-  logging out via WhatsApp Web UI...
-  device unlinked; wiping profile
-  scan the QR code in the browser window
-```
-
-Always close the browser window rather than killing the process — Chromium
-writes the profile to disk on a clean shutdown.
-
-### Other commands
+A Chromium window opens on WhatsApp Web with a QR code. On your phone:
+**WhatsApp → Settings → Linked Devices → Link a device**. Leave *"Stay logged in
+on this browser"* ticked or nothing persists. Close the window when the chat
+list appears.
 
 ```bash
-uv run wa-login --status   # where things live, and how old the session is
-uv run wa-login --reset    # unlink and wipe now, then log in fresh
+uv run wa-login --status     # checks WhatsApp itself, not just the local record
 ```
 
-## Unread digest
+### 3. Give the drafter Gmail and Calendar
+
+The drafter reads your mail and calendar through
+[workspace-mcp](https://github.com/taylorwilsdon/google_workspace_mcp), which
+needs a Google OAuth client (Desktop app) with the Gmail and Calendar APIs
+enabled. Register the server with Claude Code **for this project directory**:
 
 ```bash
-uv run wa-unread
+claude mcp add workspace-mcp --scope project \
+  -e GOOGLE_OAUTH_CLIENT_ID=... \
+  -e GOOGLE_OAUTH_CLIENT_SECRET=... \
+  -e WORKSPACE_MCP_PORT=8000 \
+  -e GOOGLE_OAUTH_REDIRECT_URI=http://localhost:8000/oauth2callback \
+  -- uvx workspace-mcp --read-only --tools gmail calendar
 ```
 
-Lists chats with unread messages and a one-line summary of each:
+`--read-only` matters: the drafter is granted only `search_gmail_messages`,
+`get_events` and similar. It cannot send mail or edit your calendar.
 
-```
-2 chats with unread messages (17 total)
+A drafting run whose MCP handshake is not `connected` is **killed before it
+spends a token** and the message stays queued — otherwise a five-minute outage
+becomes a confident reply built on nothing.
 
-● אקווה פמילי — 12 unreads · 20:27
-    ~Rama Atias: היי שבת שלום יש למישהו 2 גזרים לתת לי ?
+### 4. Tell it whose calendars to read
 
-● צהרון שונית/חופים — 5 unreads · 12:25
-    ~שירה לברון שינוי מבפנים: אלה ימי החופש לפני התאריכים…
-```
-
-**It never opens a chat.** It reads the chat-list rows WhatsApp has already
-rendered — name, unread badge, timestamp, and the preview snippet — after
-switching to the built-in "Unread" filter tab. Opening a chat would mark it
-read and send blue ticks to the sender, which is visible to them and cannot be
-undone, so the tool does not do it. The cost is that summaries are limited to
-the one-line preview.
-
-`--limit N` caps how many rows are read; `--keep-open` leaves the window open.
-
-### Swapping in a real summariser
-
-`digest.Summarizer` is a protocol with one method. `LocalDigest` (the default)
-echoes the preview. An LLM-backed summariser drops in without touching
-extraction or rendering:
-
-```python
-class MySummarizer:
-    name = "claude"
-
-    def summarize(self, chat: UnreadChat) -> str:
-        ...
-
-render(chats, summarizer=MySummarizer())
+```bash
+cp context.example.json .wa-agent/context.json   # then edit
 ```
 
-Note that anything beyond `LocalDigest` sends your messages — and your
-contacts' — to a third party.
+Without it the drafter refuses to run. That is deliberate: with Gmail working
+but no calendars, it would answer availability questions from thin air.
+
+### 5. Allow some chats
+
+```bash
+uv run wa-agent chats --search "Ann"          # exact names, to copy
+uv run wa-agent allow "Ann" --mode reply
+uv run wa-agent allow "Building" --group --mode summarize
+uv run wa-agent list
+```
+
+### 6. Run the daemon
+
+```bash
+cp examples/com.example.wa-agent.plist ~/Library/LaunchAgents/
+# edit WorkingDirectory and the uv path inside it, then:
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.example.wa-agent.plist
+launchctl print gui/$(id -u)/com.example.wa-agent | grep state
+```
+
+It needs the Aqua GUI session — it drives a real browser window (minimised, not
+headless: WhatsApp Web does not render headless at all). launchd caches the
+plist at bootstrap, so after editing it you must `bootout` and `bootstrap`
+again.
+
+---
+
+## Using it
+
+Everything happens in your self-chat ("Message yourself").
+
+| you type | effect |
+|---|---|
+| `OK #XXX` | send it |
+| `NO #XXX` | discard it |
+| `EDIT #XXX: shorter, drop the prices` | redraft (max 5 revisions) |
+| `GROUPSUM` | digest the `summarize` groups |
+
+The whole message must be the command. **`OK #XXX but shorter` is ambiguous and
+never sends** — a caveat is not consent, and silence never is either. A Russian
+keyboard's `ОК` (Cyrillic О К) is accepted; it looks identical on screen.
+
+A digest covers only what has arrived since the last one posted, and says
+"nothing new" rather than restating itself.
+
+### Command line
+
+```bash
+uv run wa-login [--status|--quick|--reset]
+uv run wa-agent list|allow|deny|chats|unread|pending|drop
+uv run wa-agent tick                  # one cycle by hand
+uv run pytest                         # 416 tests
+uv run pytest -m "not browser"        # the fast subset
+```
 
 ### Configuration
 
-| Variable | Default | Meaning |
+| variable | default | meaning |
 |---|---|---|
 | `WA_PROFILE_DIR` | `./.wa-profile` | Chromium user-data directory |
-| `WA_STATE_DIR` | `./.wa-state` | Where the session timestamp is kept |
-| `WA_ROTATE_AFTER_HOURS` | `24` | Rotation policy |
+| `WA_STATE_DIR` | `./.wa-state` | where the rotation timestamp lives |
+| `WA_ROTATE_AFTER_HOURS` | `24` | session rotation policy |
+| `WA_ENFORCE_ROTATION` | off | stop the daemon once the session is over-age |
+| `WA_DAEMON_LABEL` | `com.example.wa-agent` | your launchd label, for messages |
 
-```bash
-WA_ROTATE_AFTER_HOURS=8 uv run wa-login
-```
+Files in `.wa-agent/`: `allowlist.json`, `context.json`, `style.json` (house
+style injected into every prompt), `digest_seen.json`, `journal.jsonl`,
+`queue/`, `outbox/`, `daemon.log`. All gitignored, `0700`/`0600`.
 
-## Tests
+---
 
-```bash
-uv run pytest                    # everything
-uv run pytest -m "not browser"   # fast, no browser launched
-uv run pytest -m browser --headed --slowmo 3000   # watch them run
-```
+## Security and privacy
 
-`--slowmo MS` delays each Playwright *action* and implies `--headed`. It does
-not delay read-only queries such as visibility checks, so the detection probes
-still run at full speed.
+`.wa-profile/` is a **live WhatsApp credential** — anyone holding it can read
+and send as you. Treat it like an SSH key. It never leaves your machine and is
+gitignored.
 
-The browser-marked tests launch a real headless Chromium against in-memory HTML
-fixtures — no network, and no mocking of Playwright itself. They skip
-automatically if the Chromium binary is not installed.
+The session is rotated every 24h by policy. The daemon cannot rotate itself
+(linking needs a QR from your phone), so it warns in the self-chat at 6h, 2h and
+30m — while it still has a channel to warn through. Once the session lapses the
+self-chat is gone too, and the only fallback is a macOS notification.
 
-## Reading unread chats (destructive)
+To revoke everything: **phone → Linked Devices → log out**, then
+`rm -rf .wa-profile .wa-state`.
 
-```bash
-uv run wa-read --yes
-```
-
-Opens every unread chat and exports its messages to `.wa-export/<timestamp>/`.
-
-**This marks those chats read and sends read receipts to your contacts.** It is
-irreversible and visible to them, and the unread state is gone afterwards —
-which is why `--yes` is mandatory and why the run is built to need only one
-attempt:
-
-1. The unread snapshot is written **before** any chat is opened.
-2. Each chat's parsed JSON **and** its raw pane HTML are written immediately
-   after capture, so a parsing mistake can be fixed offline rather than needing
-   a second run that no longer exists.
-3. A failure on one chat is recorded and the run continues.
-
-Output per run:
-
-```
-unread_snapshot.json        which chats were unread, and how many
-chat_NN_<name>.json         parsed messages (sender, date, time, text, id)
-chat_NN_<name>.html         raw conversation pane, for offline re-parsing
-all_chats.json              everything combined
-```
-
-`.wa-export/` holds message content and is gitignored. Treat it like the
-profile: it contains your contacts' messages, not just yours.
+See [SECURITY.md](SECURITY.md) for the boundary model and the disclosed
+privilege-escalation finding.
 
 ## Notes on WhatsApp Web
 
@@ -173,49 +231,8 @@ Verified against the live site on 2026-08-28:
 
 All selectors live in `selectors.py`. When WhatsApp changes its markup, that is
 the only file that should need editing.
+---
 
-## Security
+## Licence
 
-**`.wa-profile/` is a live credential.** It holds the WhatsApp Web session
-token. Anyone who copies that directory to another machine gets your WhatsApp
-account: full message history and the ability to send as you. It is closer to
-an unlocked session than to a password hash. Treat it like an SSH private key.
-
-- **Never commit it.** It is in `.gitignore`, but `git add -f`, an IDE "add
-  all", or a `tar` of the project directory all bypass that. If it ever does
-  get committed, rotate the credential (`uv run wa-login --reset`) — removing
-  the file from a later commit is not enough, the token is still in the git
-  objects.
-- **Do not move this project into `~/Desktop` or `~/Documents`.** Both are
-  syncing to iCloud Drive on this machine, so the session token would be
-  uploaded to Apple. `~/PycharmProjects` is outside the sync tree — checked on
-  2026-08-28. The same applies to Dropbox, Google Drive, and OneDrive folders.
-- **Encryption at rest** comes from FileVault, which is on for this machine's
-  data volume. The profile itself is plain SQLite and LevelDB; the directory is
-  created `0700` so other local accounts cannot read it.
-- **Cached message content accumulates.** Even though this tool never reads
-  messages, Chromium caches page data — including message content — into the
-  profile as you browse. Daily rotation wipes it.
-
-### Revoking access
-
-On your phone: WhatsApp → Settings → Linked Devices → tap this computer → Log
-out. Then delete `.wa-profile/`, or run `uv run wa-login --reset`.
-
-### A caveat about rotation
-
-Deleting the profile directory alone does **not** revoke the session — it
-orphans it, and the linked device stays registered on your account until it
-expires. WhatsApp caps you at roughly four linked devices, so rotation logs out
-through the WhatsApp Web UI first.
-
-That logout depends on WhatsApp Web's markup, which changes without notice. If
-the selectors stop matching, the tool wipes the profile anyway and prints:
-
-```
-  could not confirm logout through the UI; wiping profile anyway
-  ACTION NEEDED: on your phone, open WhatsApp -> Linked Devices and
-  remove any stale entry for this computer.
-```
-
-Do what it says, or stale devices will pile up against the cap.
+MIT — see [LICENSE](LICENSE).
