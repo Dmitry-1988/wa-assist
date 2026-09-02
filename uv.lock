@@ -181,7 +181,7 @@ wheels = [
 ]
 
 [[package]]
-name = "wa-session"
+name = "wa-assist"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
