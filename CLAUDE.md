@@ -49,6 +49,12 @@ The answer schema still **rejects** `chat`/`recipient`/`to`/`send`/`live`/`draft
   will not resurface as unread. That is intended: the user re-opens the topic by
   sending a new message, which makes the chat unread and queues it normally.
   Do not "fix" this by re-queueing on reject.
+- `EDIT #XXX` retires the original **immediately** — it can never be approved
+  afterwards — and issues the redraft under a NEW id. Ids are never reused: one
+  id maps to one exact body for ever, which is what makes `OK #XXX`
+  unambiguous when an old draft is still visible above it in the chat.
+- The revision count lives on the Draft and is carried through
+  `propose`, or `MAX_REVISIONS` is unreachable and an edit loop is unbounded.
 - `propose`/`deliver` refuse any chat not in `reply` mode.
 - Recipient verified on two independent signals (header title + composer
   aria-label); any conflict refuses.

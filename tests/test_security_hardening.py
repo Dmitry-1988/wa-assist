@@ -341,3 +341,46 @@ def test_a_note_posted_with_emoji_is_confirmed_end_to_end(monkeypatch):
     monkeypatch.setattr(selfchat, "read",
                         lambda p, limit=60: [M("GROUP DIGEST 13:16 building")])
     assert post_note(Page(), "📋 GROUP DIGEST 13:16\n\nbuilding") == "m9"
+
+
+# --- 9. the revision cap must actually be reachable ------------------------
+
+def test_a_draft_remembers_how_many_edits_produced_it(tmp_path):
+    """`_queue_revision` reads the revision off the pending entry. Draft had no
+    such field, so it read 0 every time and computed revision 1 for ever --
+    MAX_REVISIONS was unreachable and an edit loop was unbounded, one paid
+    drafting run per round."""
+    from wa_session.agent import PendingDraft
+    from wa_session.approval import Draft
+
+    d = Draft(draft_id="#AAA", recipient="X", source_chat="X", body="b",
+              quoted="", sources=[],
+              created_at=datetime.datetime.now(datetime.timezone.utc),
+              ttl_hours=2, revision=3)
+    restored = PendingDraft.from_dict(
+        PendingDraft(draft=d, marker_id="m1").as_dict())
+    assert restored.draft.revision == 3
+
+
+def test_pending_entries_expose_the_revision(config, monkeypatch):
+    from wa_session.agent import PendingDraft, pending_drafts, save_pending
+    from wa_session.approval import Draft
+
+    d = Draft(draft_id="#AAA", recipient="X", source_chat="X", body="b",
+              quoted="", sources=[],
+              created_at=datetime.datetime.now(datetime.timezone.utc),
+              ttl_hours=2, revision=4)
+    save_pending(config, PendingDraft(draft=d, marker_id="m1"))
+    entry = pending_drafts(config)[0]
+    assert entry["revision"] == 4
+
+
+def test_the_revision_cap_is_reachable(config):
+    """At the cap the edit is refused instead of spawning another paid run."""
+    from wa_session.pipeline import MAX_REVISIONS
+    from wa_session.tick import _queue_revision
+
+    entry = {"draft_id": "#AAA", "recipient": "X", "body": "b",
+             "revision": MAX_REVISIONS}
+    out = _queue_revision(config, entry, "shorter")
+    assert "edit_refused" in out

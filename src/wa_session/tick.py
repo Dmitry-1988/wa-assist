@@ -508,6 +508,8 @@ def _post_ready_drafts(page, config: Config, result: dict) -> int:
                 page, config, item.chat, submission.body,
                 sources=submission.sources,
                 quoted=(item.messages[-1]["text"] if item.messages else ""),
+                # Carry the count forward, or MAX_REVISIONS can never be hit.
+                revision=item.revision,
             )
         except Exception as exc:
             result["actions"].append(

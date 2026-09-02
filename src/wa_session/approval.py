@@ -60,6 +60,10 @@ class Draft:
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     ttl_hours: float = DEFAULT_TTL_HOURS
     status: Status = Status.PENDING
+    # How many EDITs produced this text. Without it the counter restarted at
+    # zero on every revision and MAX_REVISIONS could never be reached, so an
+    # edit loop was unbounded -- one paid drafting run per round, for ever.
+    revision: int = 0
 
     @property
     def expires_at(self) -> datetime:
