@@ -11,7 +11,8 @@ send guards in `compose`.
 from __future__ import annotations
 
 from . import selectors
-from .compose import SendResult, header_recipient, send_message
+from .compose import (SendResult, header_recipient, send_message,
+                      wait_for_chat_ready)
 from .interstitials import dismiss
 from .messages import Message, extract_messages
 
@@ -31,10 +32,9 @@ def open_self_chat(page, timeout_ms: int = 8000) -> str:
             "'Message yourself' row not found in the chat list"
         )
     row.click(timeout=timeout_ms)
-    page.wait_for_timeout(2500)
+    name = wait_for_chat_ready(page, timeout_ms=timeout_ms)
     dismiss(page)
-
-    name = header_recipient(page)
+    name = name or header_recipient(page)
     if not name:
         raise SelfChatUnavailable("opened a chat but could not read its title")
     return name

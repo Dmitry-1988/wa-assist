@@ -33,8 +33,12 @@
   <key>WorkingDirectory</key>
   <string>/Users/CHANGE-ME/wa-assist</string>
 
+  <!-- How often to look for new messages. This is the dominant term in
+       "message arrives" to "draft appears": you wait half of it on average.
+       An idle tick costs ~20s, so 120 spends about a fifth of the time with a
+       browser open; 300 is calmer, 60 is most of the time. -->
   <key>StartInterval</key>
-  <integer>300</integer>
+  <integer>120</integer>
 
   <key>RunAtLoad</key>
   <true/>

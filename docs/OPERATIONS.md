@@ -8,7 +8,8 @@ wrong. If you are setting it up for the first time, start with the
 
 ## One tick, in order
 
-The daemon runs `wa-agent tick` every 300 seconds. Each tick has three phases,
+The daemon runs `wa-agent tick` every `StartInterval` seconds (120 in the
+shipped template). Each tick has three phases,
 and the split matters: an LLM run can take five minutes, and holding the
 browser lock through it starves every other tick.
 
@@ -188,6 +189,36 @@ tail -5 .wa-agent/daemon.err.log
 `runs` should climb every 300s. If `last exit code` is non-zero, the stderr log
 has the traceback. Remember launchd caches the plist: after editing it you must
 `bootout` then `bootstrap`.
+
+---
+
+## Latency, and the interval
+
+Measured over 500 ticks on one machine:
+
+| stage | cost |
+|---|---|
+| waiting to be noticed | 0 to one interval, **half of it on average** |
+| browser open + WhatsApp load | ~6s, twice per productive tick |
+| opening a chat | ~1.4s |
+| the drafting run itself | 20 to 60s |
+
+The interval dominates everything else, so it is the only knob worth turning
+first. An idle tick costs about 20 seconds, which sets the price:
+
+| `StartInterval` | average wait before a message is noticed | share of time with a browser open |
+|---|---|---|
+| 300 | 150s | ~8% |
+| 180 | 90s | ~14% |
+| **120** (default) | **60s** | **~20%** |
+| 60 | 30s | ~40% |
+
+Below about 120 the daemon holds the profile lock so much that interactive
+commands and `wa-login` start waiting behind it. Change it in the plist, then
+`bootout` and `bootstrap` — launchd caches the old value otherwise.
+
+A draft that lands in the same tick that noticed the message takes roughly
+60-90 seconds end to end; one that just misses a tick takes an interval longer.
 
 ---
 

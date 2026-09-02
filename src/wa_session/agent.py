@@ -31,7 +31,7 @@ from .approval import (
     render_draft_message,
     resolve,
 )
-from .compose import SendRefused, send_message
+from .compose import SendRefused, send_message, wait_for_chat_ready
 from .config import Config, ensure_private_dir
 from .export import find_row_by_name
 from .selfchat import find_message_id, open_self_chat, post, read
@@ -206,7 +206,7 @@ def read_chat(page, chat: str) -> dict:
     if row is None:
         return {"ok": False, "reason": f"chat {chat!r} not found"}
     row.click(timeout=5000)
-    page.wait_for_timeout(3500)
+    wait_for_chat_ready(page, expected=chat)
     dismiss_overlays(page)
     capture = capture_chat(page, chat, expected_unread=10)
     return {
@@ -326,7 +326,7 @@ def deliver(page, config: Config, draft_id: str, live: bool = False) -> dict:
     if row is None:
         return {"ok": False, "reason": f"chat {draft.recipient!r} not found"}
     row.click(timeout=5000)
-    page.wait_for_timeout(3000)
+    wait_for_chat_ready(page, expected=draft.recipient)
 
     # Journal immediately BEFORE the click, never earlier: a crash mid-send
     # must not look unsent, but a pre-send refusal must not look sent either.
