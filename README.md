@@ -158,9 +158,17 @@ Everything happens in your self-chat ("Message yourself").
 | you type | effect |
 |---|---|
 | `OK #XXX` | send it |
-| `NO #XXX` | discard it |
-| `EDIT #XXX: shorter, drop the prices` | redraft (max 5 revisions) |
+| `NO #XXX` | discard it — terminal, nothing re-queues |
+| `EDIT #XXX: shorter, drop the prices` | redraft under a **new id** (max 5 revisions) |
 | `GROUPSUM` | digest the `summarize` groups |
+
+`EDIT` retires the original immediately: it can never be approved afterwards,
+and the redraft arrives under a new id. Ids are never reused, so `OK #XXX`
+always means one exact body even when an older draft is still visible above it.
+You get an acknowledgement the moment an edit is accepted, and a note if you
+command a draft that is already sent, withdrawn or expired.
+
+Drafts expire two hours after posting.
 
 The whole message must be the command. **`OK #XXX but shorter` is ambiguous and
 never sends** — a caveat is not consent, and silence never is either. A Russian
@@ -190,8 +198,52 @@ uv run pytest -m "not browser"        # the fast subset
 | `WA_DAEMON_LABEL` | `com.example.wa-agent` | your launchd label, for messages |
 
 Files in `.wa-agent/`: `allowlist.json`, `context.json`, `style.json` (house
-style injected into every prompt), `digest_seen.json`, `journal.jsonl`,
-`queue/`, `outbox/`, `daemon.log`. All gitignored, `0700`/`0600`.
+style injected into every prompt), `digest_seen.json`, `rotation.json`,
+`journal.jsonl`, `queue/`, `outbox/`, `daemon.log`. All gitignored,
+`0700`/`0600`. What each holds, and which are safe to delete, is in
+**[docs/OPERATIONS.md](docs/OPERATIONS.md)**.
+
+Do not delete `journal.jsonl`: it is the only thing preventing a draft being
+sent twice.
+
+### When something looks wrong
+
+**[docs/OPERATIONS.md](docs/OPERATIONS.md)** covers what each tick does, how to
+read `daemon.log`, and what to do when a draft or digest does not appear. The
+short version:
+
+```bash
+uv run wa-login --status          # asks WhatsApp, not just the local record
+jq -c 'select(.actions|length>0)' .wa-agent/daemon.log | tail -20
+tail -5 .wa-agent/daemon.err.log
+```
+
+The most common cause of "nothing happened" is a chat that was already read on
+your phone — the daemon only sees unread chats — or a group that was never
+added to the allowlist.
+
+## Updating
+
+```bash
+git pull && uv sync
+uv run pytest -m "not browser"
+launchctl bootout   gui/$(id -u)/<your-label>
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/<your-label>.plist
+```
+
+Code changes take effect on the next tick without a reload; plist changes do
+not, and dependency changes need `uv sync`.
+
+## Uninstall
+
+```bash
+launchctl bootout gui/$(id -u)/<your-label>
+rm ~/Library/LaunchAgents/<your-label>.plist
+rm -rf .wa-profile .wa-state .wa-agent
+```
+
+Then log the browser out from **phone → Linked Devices**. That is the step that
+actually revokes access — deleting the profile only removes your local copy.
 
 ---
 
