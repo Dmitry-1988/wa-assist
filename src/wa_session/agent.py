@@ -84,6 +84,7 @@ class PendingDraft:
                 created_at=datetime.fromisoformat(d["created_at"]),
                 ttl_hours=d.get("ttl_hours", 2.0),
                 status=Status(d.get("status", "pending")),
+                revision=int(d.get("revision", 0)),
             ),
             marker_id=data.get("marker_id", ""),
         )
@@ -180,6 +181,7 @@ def pending_drafts(config: Config, chat: str = "") -> list[dict]:
             "created_at": draft.created_at.isoformat(),
             "expires_at": draft.expires_at.isoformat(),
             "body": draft.body,
+            "revision": draft.revision,
         })
     return out
 
@@ -237,7 +239,7 @@ def _fresh_draft_id(config: Config, attempts: int = 40) -> str:
 
 def propose(page, config: Config, chat: str, body: str,
             sources: list[str] | None = None, quoted: str = "",
-            ttl_hours: float = 2.0) -> PendingDraft:
+            ttl_hours: float = 2.0, revision: int = 0) -> PendingDraft:
     """Post a draft into your self-chat and record it as pending.
 
     Refuses for a chat that is not allowlisted -- there is no point drafting
@@ -255,7 +257,7 @@ def propose(page, config: Config, chat: str, body: str,
     draft = Draft(
         draft_id=_fresh_draft_id(config), recipient=chat, source_chat=chat,
         body=body.strip(), quoted=quoted, sources=sources or [],
-        ttl_hours=ttl_hours,
+        ttl_hours=ttl_hours, revision=revision,
     )
     text = render_draft_message(draft, audience=entry.audience())
     post(page, text)
