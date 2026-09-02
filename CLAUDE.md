@@ -66,11 +66,13 @@ The answer schema still **rejects** `chat`/`recipient`/`to`/`send`/`live`/`draft
   than transcribes and never mixes languages mid-sentence, quoting short Hebrew
   only where the exact wording carries the meaning. This is the DIGEST only —
   replies still go out in the language the other person wrote in.
-- **Every self-chat note goes through `tick.post_note`**, which raises unless
-  the send really happened. `selfchat.post` RETURNS a SendResult and does not
-  raise on a post-click refusal; ignoring it once marked a digest delivered,
-  cleared its queue item and advanced its watermarks while nothing was posted —
-  nine messages seen and lost.
+- **Every self-chat note goes through `tick.post_note`**, which READS THE
+  MESSAGE BACK before returning. Two separate failures make that necessary:
+  `selfchat.post` returns a SendResult and does not raise on a post-click
+  refusal; and even a genuine "sent" is not yet transmitted when the call
+  returns, so `_post_phase` closing the browser immediately dropped the
+  message — `summary_posted` in the log, nothing in the chat. Drafts never hit
+  this because `propose` already reads back to find `marker_id`.
 - **A digest never repeats itself.** `watermarks.py` keeps the last summarised
   `msg_id` per group in `.wa-agent/digest_seen.json`; GROUPSUM summarises only
   what arrived after it, and posts "nothing new" rather than restating. The

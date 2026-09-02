@@ -23,12 +23,21 @@ def config(tmp_path) -> Config:
                   state_dir=tmp_path / "p" / ".wa-state", rotate_after_hours=24.0)
 
 
+class _Msg:
+    def __init__(self, text, msg_id):
+        self.text, self.msg_id = text, msg_id
+
+
 class FakePage:
-    """Records what would have been posted to the self-chat."""
+    """Records what would have been posted, and echoes it back on read --
+    post_note now confirms delivery instead of trusting the send."""
 
     def __init__(self, fails=False):
         self.posted: list[str] = []
         self.fails = fails
+
+    def wait_for_timeout(self, ms):
+        pass
 
 
 @pytest.fixture(autouse=True)
@@ -41,7 +50,11 @@ def fake_selfchat(monkeypatch):
         page.posted.append(text)
         return None
 
+    def read(page, limit=60):
+        return [_Msg(t, f"m{i}") for i, t in enumerate(page.posted)]
+
     monkeypatch.setattr(selfchat, "post", post)
+    monkeypatch.setattr(selfchat, "read", read)
 
 
 def test_a_failed_attempt_keeps_the_item_queued(config):
