@@ -14,6 +14,7 @@ and this module refuses to proceed if the open chat is anyone else.
 from __future__ import annotations
 
 import re
+import time
 from dataclasses import dataclass
 
 from . import selectors
@@ -71,6 +72,35 @@ def verify_recipient(page, expected: str) -> None:
         raise SendRefused(f"header says {header!r}, expected {expected!r}")
     if composer and composer != expected:
         raise SendRefused(f"composer says {composer!r}, expected {expected!r}")
+
+
+def wait_for_chat_ready(page, expected: str = "", timeout_ms: int = 9000,
+                        poll_ms: int = 100) -> str:
+    """Block until a conversation pane is usable. Returns the header title.
+
+    Replaces a flat sleep after clicking a chat row. The old code waited 2.5 to
+    3.5 seconds whether the pane took 200ms or three, on every capture, draft
+    and send -- and the browser work happens twice per productive tick, so it
+    was paid twice.
+
+    Waits for the header AND the composer, because every caller goes on to read
+    one or both. Returns whatever it has at the deadline rather than raising:
+    the callers already verify the recipient themselves, and that check is the
+    one that must refuse.
+    """
+    deadline = time.monotonic() + timeout_ms / 1000
+    header = ""
+    while True:
+        header = header_recipient(page)
+        if header and (not expected or header == expected):
+            try:
+                if page.locator(selectors.COMPOSER).first.count():
+                    return header
+            except Exception:
+                pass
+        if time.monotonic() >= deadline:
+            return header
+        page.wait_for_timeout(poll_ms)
 
 
 def composer_text(page) -> str:

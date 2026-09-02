@@ -105,3 +105,78 @@ def test_an_empty_composer_is_reported_plainly():
 def test_a_truncated_composer_is_caught():
     message = describe_mismatch("one two three four", "one two")
     assert "diverges at character" in message
+
+
+# --- waiting for a chat to open --------------------------------------------
+
+class _Node:
+    def __init__(self, present=True, text=""):
+        self._present, self._text = present, text
+
+    def count(self):
+        return 1 if self._present else 0
+
+    def inner_text(self, timeout=None):
+        return self._text
+
+    def get_attribute(self, name):
+        return None
+
+    @property
+    def first(self):
+        return self
+
+
+class _Locator:
+    """Returns the header after `header_after` polls, composer always."""
+
+    def __init__(self, header_after=0):
+        self.calls, self.header_after = 0, header_after
+
+    def __call__(self, selector):
+        from wa_session import selectors as sel
+        if selector == sel.HEADER_TITLE:
+            self.calls += 1
+            if self.header_after is None:      # never opens
+                return _Node(text="")
+            return _Node(text="Ann" if self.calls > self.header_after else "")
+        return _Node(present=True)
+
+
+class _Page:
+    def __init__(self, header_after=0):
+        self.locator = _Locator(header_after)
+        self.waited = 0
+
+    def wait_for_timeout(self, ms):
+        self.waited += ms
+
+
+def test_it_returns_as_soon_as_the_chat_is_open():
+    """A flat 2.5-3.5s sleep was paid on every capture, draft and send, twice
+    per productive tick, whether the pane took 200ms or three seconds."""
+    from wa_session.compose import wait_for_chat_ready
+    page = _Page(header_after=0)
+    assert wait_for_chat_ready(page, expected="Ann") == "Ann"
+    assert page.waited == 0, "returned without sleeping when already open"
+
+
+def test_it_keeps_polling_until_the_pane_appears():
+    from wa_session.compose import wait_for_chat_ready
+    page = _Page(header_after=3)
+    assert wait_for_chat_ready(page, expected="Ann") == "Ann"
+    assert page.waited > 0
+
+
+def test_it_gives_up_at_the_deadline_rather_than_hanging():
+    """Callers verify the recipient themselves; that check is the one that
+    must refuse, so this returns what it has instead of raising."""
+    from wa_session.compose import wait_for_chat_ready
+    page = _Page(header_after=None)      # the pane never appears
+    assert wait_for_chat_ready(page, expected="Ann", timeout_ms=120) == ""
+
+
+def test_a_different_chat_does_not_satisfy_the_wait():
+    from wa_session.compose import wait_for_chat_ready
+    page = _Page(header_after=0)
+    assert wait_for_chat_ready(page, expected="Bob", timeout_ms=120) == "Ann"
