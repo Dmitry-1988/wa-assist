@@ -75,6 +75,11 @@ The answer schema still **rejects** `chat`/`recipient`/`to`/`send`/`live`/`draft
   listing what was not found. That belongs in `sources`, which only the user
   sees at approval. "Не знаю" is said briefly, never as a survey of what was
   searched. Brevity must not drop half a two-part question.
+- **Digests report, they do not infer.** A teacher wrote "Thursday and Friday
+  are my days off"; the digest said "no kindergarten those days" — false, a
+  substitute was covering. State the words and let the user draw the
+  consequence. The digest also must not title itself: the daemon adds the
+  header, and `_strip_own_title` removes a second one anyway.
 - **Digests are short.** Under 120 words total, max 3 one-line bullets per
   chat, no restating a message in full — a digest slower to read than the
   messages has failed. (A 2-message digest once filled a phone screen.)

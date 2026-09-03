@@ -507,6 +507,20 @@ def post_note(page, text: str, settle_s: float = 12.0) -> str:
         page.wait_for_timeout(500)
 
 
+_OWN_TITLE = re.compile(r"^\s*(?:📋\s*)?GROUP DIGEST\b[^\n]*\n+", re.IGNORECASE)
+
+
+def _strip_own_title(body: str) -> str:
+    """Drop a heading the model added on top of the daemon's own.
+
+    The prompt tells it not to, but a header is a natural thing to write and
+    one slipped through: the note went out reading "GROUP DIGEST 06:31" and
+    then "GROUP DIGEST" again. Belt and braces, because the prompt is guidance
+    and this is not.
+    """
+    return _OWN_TITLE.sub("", body, count=1).lstrip()
+
+
 def _post_ready_summaries(page, config: Config, result: dict) -> int:
     """Post finished group digests into the self-chat as plain notes.
 
@@ -529,7 +543,7 @@ def _post_ready_summaries(page, config: Config, result: dict) -> int:
         if submission is None:
             continue
         stamp = datetime.now(timezone.utc).astimezone().strftime("%H:%M")
-        note = (f"📋 GROUP DIGEST {stamp}\n\n{submission.body}\n\n"
+        note = (f"📋 GROUP DIGEST {stamp}\n\n{_strip_own_title(submission.body)}\n\n"
                 + "\n".join(f"· {src}" for src in submission.sources))
         try:
             post_note(page, note)
