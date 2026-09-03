@@ -87,3 +87,58 @@ def test_replies_still_follow_the_other_person_s_language(config):
     prompt = build_prompt(QueueItem(queue_id="q1", chat="Подруга"), config)
     assert "in the language the other person used" in prompt
     assert "ENGLISH" not in prompt
+
+
+# --- report what was said; never derive what it means ----------------------
+
+def test_inferring_a_consequence_is_forbidden():
+    """A teacher wrote "Thursday and Friday are my days off"; the digest
+    reported "no kindergarten those days", which was false -- a substitute was
+    covering, and the parent nearly kept a child home on it."""
+    text = summary()
+    assert "REPORT, DO NOT INFER" in text
+    assert "Never\nstate a consequence nobody wrote" in text
+
+
+def test_the_real_failure_is_carried_as_the_example():
+    """Keeping the actual case in the prompt beats an abstract rule."""
+    text = summary()
+    assert "days off" in text
+    assert "no kindergarten" in text
+    assert "a substitute was" in text
+
+
+def test_the_user_draws_the_conclusion_not_the_digest():
+    assert "report the words and stop" in summary()
+
+
+def test_the_digest_must_not_title_itself():
+    """The daemon adds its own header; a second one lands underneath it."""
+    text = summary()
+    assert "DO NOT TITLE THE DIGEST" in text
+    assert "Start straight at the first chat name" in text
+
+
+# --- and the code strips one anyway ----------------------------------------
+
+@pytest.mark.parametrize("body", [
+    "📋 GROUP DIGEST\n\nאקווה\n· x",
+    "GROUP DIGEST 06:31\n\nאקווה\n· x",
+    "📋 GROUP DIGEST 06:31\nאקווה\n· x",
+])
+def test_a_self_added_title_is_removed(body):
+    from wa_session.tick import _strip_own_title
+    assert _strip_own_title(body).startswith("אקווה")
+
+
+def test_a_body_without_a_title_is_untouched():
+    from wa_session.tick import _strip_own_title
+    body = "אקווה פמילי\n· Lighting at the back is broken."
+    assert _strip_own_title(body) == body
+
+
+def test_only_the_leading_title_is_stripped():
+    """A later mention must survive; this is a header fix, not a censor."""
+    from wa_session.tick import _strip_own_title
+    body = "📋 GROUP DIGEST\n\nא\n· someone said GROUP DIGEST in the chat"
+    assert "someone said GROUP DIGEST in the chat" in _strip_own_title(body)
