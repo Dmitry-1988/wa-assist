@@ -256,7 +256,7 @@ def _wire(monkeypatch, page):
                         lambda p, text, dry_run=False: (p.sent.append(text)
                                                         or _Result(True, detail="sent")))
     monkeypatch.setattr(selfchat, "read",
-                        lambda p, limit=60: [M(t) for t in p.sent] if p.echo else [])
+                        lambda p, limit=60, **kw: [M(t) for t in p.sent] if p.echo else [])
 
 
 def test_a_real_post_is_accepted(monkeypatch):
@@ -339,7 +339,7 @@ def test_a_note_posted_with_emoji_is_confirmed_end_to_end(monkeypatch):
                         lambda p, text, dry_run=False: _Result(True, detail="sent"))
     # the chat echoes the note back WITHOUT its emoji, as WhatsApp does
     monkeypatch.setattr(selfchat, "read",
-                        lambda p, limit=60: [M("GROUP DIGEST 13:16 building")])
+                        lambda p, limit=60, **kw: [M("GROUP DIGEST 13:16 building")])
     assert post_note(Page(), "📋 GROUP DIGEST 13:16\n\nbuilding") == "m9"
 
 

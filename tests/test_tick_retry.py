@@ -50,7 +50,7 @@ def fake_selfchat(monkeypatch):
         page.posted.append(text)
         return None
 
-    def read(page, limit=60):
+    def read(page, limit=60, **kw):
         return [_Msg(t, f"m{i}") for i, t in enumerate(page.posted)]
 
     monkeypatch.setattr(selfchat, "post", post)

@@ -47,7 +47,7 @@ def fake_selfchat(monkeypatch):
         return None
 
     monkeypatch.setattr(selfchat, "post", post)
-    monkeypatch.setattr(selfchat, "read", lambda page, limit=60: page.incoming)
+    monkeypatch.setattr(selfchat, "read", lambda page, limit=60, **kw: page.incoming)
 
 
 def stored(config, draft_id, hours_old=0.0):

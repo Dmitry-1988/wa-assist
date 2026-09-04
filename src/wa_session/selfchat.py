@@ -14,7 +14,7 @@ from . import selectors
 from .compose import (SendResult, header_recipient, send_message,
                       wait_for_chat_ready)
 from .interstitials import dismiss
-from .messages import Message, extract_messages
+from .messages import Message, extract_messages, load_more
 
 SELF_CHAT_ROW = '[data-testid="message-yourself-row"]'
 
@@ -48,13 +48,54 @@ def post(page, text: str, dry_run: bool = False) -> SendResult:
     silently break the approval loop.
     """
     name = open_self_chat(page)
-    return send_message(page, name, text, dry_run=dry_run)
+    result = send_message(page, name, text, dry_run=dry_run)
+    invalidate(page)      # the cached history no longer includes what we sent
+    return result
 
 
-def read(page, limit: int = 60) -> list[Message]:
-    """Read the self-chat's rendered messages, oldest first."""
+_CACHE_ATTR = "_wa_selfchat_cache"
+
+
+def invalidate(page) -> None:
+    """Forget the cached read. Called after anything is posted."""
+    try:
+        setattr(page, _CACHE_ATTR, None)
+    except Exception:
+        pass
+
+
+def read(page, limit: int = 60, refresh: bool = False,
+         scroll: bool = True) -> list[Message]:
+    """Read the self-chat, oldest first, scrolling until `limit` are loaded.
+
+    WhatsApp virtualises the message list: reopening a chat can render a single
+    row even when the conversation has dozens. Without scrolling, this returned
+    1 message out of 19 -- and this is the function every tick uses to find
+    your GROUPSUM, your approval and any command. A request landing outside
+    that keyhole was silently never seen, which looked exactly like the daemon
+    ignoring you.
+
+    `read_chat` had always scrolled via `load_more`; the self-chat, the one
+    place where every instruction arrives, did not.
+    """
+    want = limit or 60
+    if not refresh:
+        cached = getattr(page, _CACHE_ATTR, None)
+        # Reusable only if it was loaded at least as deep as this caller needs.
+        if cached and cached[0] >= want:
+            return cached[1][-limit:] if limit else cached[1]
+
     open_self_chat(page)
+    if scroll:
+        # Scrolling is what makes this correct, and it is not cheap, so a tick
+        # pays for it once: several callers read the self-chat per cycle.
+        load_more(page, minimum=want)
     messages = extract_messages(page)
+    if scroll:
+        try:
+            setattr(page, _CACHE_ATTR, (want, messages))
+        except Exception:
+            pass
     return messages[-limit:] if limit else messages
 
 
