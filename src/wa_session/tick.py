@@ -494,7 +494,9 @@ def post_note(page, text: str, settle_s: float = 12.0) -> str:
     deadline = time.monotonic() + settle_s
     while True:
         try:
-            for message in reversed(read_selfchat(page, limit=8)):
+            for message in reversed(read_selfchat(page, limit=8,
+                                                  refresh=True,
+                                                  scroll=False)):
                 if needle and needle in _fingerprint(message.text or ""):
                     return message.msg_id
         except Exception:

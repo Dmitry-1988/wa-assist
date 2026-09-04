@@ -55,7 +55,7 @@ def fakes(monkeypatch):
     monkeypatch.setattr(selfchat, "post",
                         lambda page, text, dry_run=False: page.posted.append(text))
     monkeypatch.setattr(selfchat, "read",
-                        lambda page, limit=60: [_Msg(t, f"m{i}")
+                        lambda page, limit=60, **kw: [_Msg(t, f"m{i}")
                                                 for i, t in enumerate(page.posted)])
 
 

@@ -123,6 +123,13 @@ Self-chat commands: `OK #XXX`, `NO #XXX`, `EDIT #XXX: …`, `GROUPSUM`.
 
 ## Hard-won facts — check before "fixing" these
 
+- **WhatsApp virtualises the message list.** Reopening a chat can render ONE
+  row of nineteen. `selfchat.read` must call `load_more`, or the daemon reads
+  the self-chat — where every GROUPSUM and approval arrives — through a
+  keyhole and silently ignores commands that are plainly there. Scrolling costs
+  ~6s, so a read is cached per page and invalidated by `post`; the delivery
+  read-back passes `scroll=False` since it only wants the newest message.
+
 - **WhatsApp Web does not render headless.** Verified on both fresh and
   logged-in profiles: empty document. Every browser step runs headed.
 - Windows are **minimised via CDP** (`quiet=True`), not headless and not moved
