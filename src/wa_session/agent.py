@@ -192,12 +192,18 @@ def retire_draft(config: Config, draft_id: str, reason: str = "superseded") -> d
     return {"retired": draft_id, "reason": reason}
 
 
-def read_chat(page, chat: str) -> dict:
+def read_chat(page, chat: str, depth: int = 10) -> dict:
     """Open ONE chat and read its messages.
 
     Opening marks it read and sends read receipts to that contact. Scoped to a
     single named chat on purpose: the bulk `wa-read` would open every unread
     conversation and spend receipts on people who are not part of this.
+
+    `depth` is how far back to scroll. The default suits a reply, which only
+    needs the question and a little context. A digest needs enough to still
+    contain its watermark, or it cannot tell what it has already covered --
+    see `_collect_group_messages`. Scrolling is the expensive part (~1.2s a
+    step), which is why this is not simply always deep.
     """
     from .export import find_row_by_name
     from .messages import capture_chat
@@ -208,7 +214,7 @@ def read_chat(page, chat: str) -> dict:
     row.click(timeout=5000)
     wait_for_chat_ready(page, expected=chat)
     dismiss_overlays(page)
-    capture = capture_chat(page, chat, expected_unread=10)
+    capture = capture_chat(page, chat, expected_unread=depth)
     return {
         "ok": True,
         "chat": chat,

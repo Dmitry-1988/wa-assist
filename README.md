@@ -175,7 +175,9 @@ never sends** — a caveat is not consent, and silence never is either. A Russia
 keyboard's `ОК` (Cyrillic О К) is accepted; it looks identical on screen.
 
 A digest covers only what has arrived since the last one posted, and says
-"nothing new" rather than restating itself.
+"nothing new" rather than restating itself. If it could not reach everything —
+a group that produced more between digests than one capture holds — it says
+that too, naming the group, rather than reading as a complete account.
 
 ### Command line
 
@@ -183,7 +185,7 @@ A digest covers only what has arrived since the last one posted, and says
 uv run wa-login [--status|--quick|--reset]
 uv run wa-agent list|allow|deny|chats|unread|pending|drop|read
 uv run wa-agent tick                  # one cycle by hand
-uv run pytest                         # 466 tests
+uv run pytest                         # 486 tests
 uv run pytest -m "not browser"        # the fast subset
 ```
 

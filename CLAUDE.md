@@ -106,6 +106,18 @@ The answer schema still **rejects** `chat`/`recipient`/`to`/`send`/`live`/`draft
   what arrived after it, and posts "nothing new" rather than restating. The
   mark advances **only after the digest posts** — advancing at capture would
   have lost everything covered by the five posts that silently failed.
+- **A digest may be incomplete; it may never be incomplete in silence.**
+  `watermarks.window` returns a `gap` flag, and the daemon states it in the
+  note (`⚠️ INCOMPLETE`) and the log (`groupsum_window_gap`). Two ways it used
+  to lose messages without a word: a 15-row capture that a busy group outran,
+  so the mark fell outside the window and `since` called the whole window new;
+  and `fresh[-40:]`, which dropped the oldest of a backlog and then advanced
+  the mark **past** them, so no later digest could pick them up either. Capture
+  is now `SUMMARY_CAPTURE_DEPTH` (60) and the cap is `SUMMARY_MAX_MESSAGES`
+  (120), and hitting either is reported. The gap is the DAEMON's fact — the
+  summariser is handed messages and cannot know what never arrived, so telling
+  it would only invite a guess. The mark still advances on a gap: what was
+  covered is covered.
 
 ## Commands
 
@@ -116,7 +128,7 @@ uv run wa-agent list|allow|deny # allowlist (--mode reply|summarize)
 uv run wa-agent unread|chats|pending|drop|read
 uv run wa-agent propose|poll|send [--live]
 uv run wa-agent tick            # one unattended cycle (the daemon runs this)
-uv run pytest                   # 466 tests; -m "not browser" for the fast ones
+uv run pytest                   # 486 tests; -m "not browser" for the fast ones
 ```
 
 Self-chat commands: `OK #XXX`, `NO #XXX`, `EDIT #XXX: …`, `GROUPSUM`.

@@ -61,7 +61,7 @@ from .rotation import (
 )
 from .session import first_page, persistent_context
 from .state import read_state
-from .watermarks import advance, read_watermarks, since
+from .watermarks import advance, read_watermarks, window
 
 PAGE_READY_TIMEOUT_S = 30.0
 
@@ -69,6 +69,15 @@ PAGE_READY_TIMEOUT_S = 30.0
 # At a 300s interval this is roughly half an hour of quiet retrying, which
 # covers a transient outage without letting a long one stay invisible.
 CONTEXT_STALL_ATTEMPTS = 6
+
+# How far back a SUMMARIZE chat is read. The watermark has to still be inside
+# this window or the digest cannot tell what it has already covered; 15 rows
+# (the reply default) was routinely outrun by a busy group between digests.
+SUMMARY_CAPTURE_DEPTH = 60
+# And how much of that may reach one prompt. Hitting this is reported, not
+# silently trimmed -- the old `fresh[-40:]` dropped the oldest messages and
+# then advanced the watermark past them, so they were never summarised at all.
+SUMMARY_MAX_MESSAGES = 120
 
 
 def inbox_path(config: Config) -> Path:
@@ -375,8 +384,12 @@ def _collect_group_messages(page, config: Config, result: dict) -> str | None:
     marks = read_watermarks(config)
     chats = []
     unchanged = []
+    gaps = []
     for entry in targets:
-        captured = read_chat(page, entry.name)   # opens it; receipts are sent
+        # Deep enough that the watermark is normally still in view. A shallow
+        # capture cannot tell "nothing since the mark" from "the mark scrolled
+        # away", and the second used to be reported as the first.
+        captured = read_chat(page, entry.name, depth=SUMMARY_CAPTURE_DEPTH)
         if not captured.get("ok"):
             result["actions"].append(
                 {"groupsum_skipped": entry.name, "reason": captured.get("reason")}
@@ -384,14 +397,22 @@ def _collect_group_messages(page, config: Config, result: dict) -> str | None:
             continue
         # Only what has arrived since this chat was last summarised. Without
         # this every digest restates the previous one and buries the new part.
-        fresh = since(captured["messages"], marks.get(entry.name))
-        if not fresh:
+        seen = window(captured["messages"], marks.get(entry.name),
+                      cap=SUMMARY_MAX_MESSAGES)
+        if not seen.messages:
             unchanged.append(entry.name)
             continue
-        chats.append({"chat": entry.name, "messages": fresh[-40:]})
+        if seen.gap:
+            # Never let this pass in silence. The digest that follows is
+            # incomplete, and only the daemon knows it -- the summariser is
+            # given the messages, not the fact that some are missing.
+            gaps.append({"chat": entry.name, "reason": seen.reason})
+        chats.append({"chat": entry.name, "messages": seen.messages})
 
     if unchanged:
         result["actions"].append({"groupsum_unchanged": unchanged})
+    if gaps:
+        result["actions"].append({"groupsum_window_gap": gaps})
 
     if not chats:
         # Say so: silence after a GROUPSUM is indistinguishable from a failure.
@@ -415,7 +436,8 @@ def _collect_group_messages(page, config: Config, result: dict) -> str | None:
         return None
 
     queue_id = f"{SUMMARY_PREFIX}{int(datetime.now(timezone.utc).timestamp())}"
-    item = QueueItem(queue_id=queue_id, chat="__summary__", messages=chats)
+    item = QueueItem(queue_id=queue_id, chat="__summary__", messages=chats,
+                     gaps=gaps)
     write_queue_item(config, item)
     result["actions"].append(
         {"groupsum_queued": queue_id,
@@ -523,6 +545,22 @@ def _strip_own_title(body: str) -> str:
     return _OWN_TITLE.sub("", body, count=1).lstrip()
 
 
+def _gap_notice(gaps: list[dict]) -> str:
+    """Tell the user, in the digest, which chats it could not fully cover.
+
+    A digest that quietly omits the middle of a conversation is worse than no
+    digest: it reads complete. This is the daemon's own statement of fact, not
+    the summariser's -- the summariser is handed messages and has no way to
+    know which ones never reached it.
+    """
+    if not gaps:
+        return ""
+    lines = "\n".join(f"· {g.get('chat')} — {g.get('reason')}" for g in gaps)
+    return ("\n\n⚠️ INCOMPLETE — not everything was covered:\n" + lines
+            + "\nOpen these chats to read the rest, and ask for GROUPSUM more "
+              "often to stop it happening again.")
+
+
 def _post_ready_summaries(page, config: Config, result: dict) -> int:
     """Post finished group digests into the self-chat as plain notes.
 
@@ -546,7 +584,8 @@ def _post_ready_summaries(page, config: Config, result: dict) -> int:
             continue
         stamp = datetime.now(timezone.utc).astimezone().strftime("%H:%M")
         note = (f"📋 GROUP DIGEST {stamp}\n\n{_strip_own_title(submission.body)}\n\n"
-                + "\n".join(f"· {src}" for src in submission.sources))
+                + "\n".join(f"· {src}" for src in submission.sources)
+                + _gap_notice(item.gaps))
         try:
             post_note(page, note)
         except Exception as exc:

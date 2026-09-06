@@ -49,7 +49,7 @@ class FakeUnread:
 @pytest.fixture(autouse=True)
 def fakes(monkeypatch):
     monkeypatch.setattr("wa_session.tick.read_chat",
-                        lambda page, name: {"ok": True, "messages": CHATS[name]})
+                        lambda page, name, depth=10: {"ok": True, "messages": CHATS[name]})
     monkeypatch.setattr("wa_session.tick.list_unread", lambda page: [])
     import wa_session.selfchat as selfchat
     monkeypatch.setattr(selfchat, "post",
@@ -141,7 +141,7 @@ def test_an_allowlisted_chat_is_not_reported_as_unmonitored(config, monkeypatch)
 def test_listing_unread_never_opens_a_chat(config, monkeypatch):
     """It reads the chat list only -- naming a chat must cost no read receipt."""
     monkeypatch.setattr("wa_session.tick.read_chat",
-                        lambda page, name: pytest.fail("must not open a chat"))
+                        lambda page, name, depth=10: pytest.fail("must not open a chat"))
     advance(config, [{"chat": "G1", "messages": CHATS["G1"]},
                      {"chat": "G2", "messages": CHATS["G2"]}])
     from wa_session.tick import _unmonitored_unread

@@ -53,6 +53,7 @@ jq -c 'select(.actions|length>0) | {at, actions}' .wa-agent/daemon.log | tail -2
 | `summary_posted` | a group digest reached the self-chat |
 | `groupsum_queued` | which chats and how many new messages each |
 | `groupsum_unchanged` | groups with nothing new since the last digest |
+| `groupsum_window_gap` | a digest could not cover everything; the note says so too |
 | `groupsum: nothing new` | nothing anywhere; no paid run was made |
 | `unmonitored_unread` | unread chats the allowlist does not cover |
 | `rotation_warning` | a session-expiry warning was posted |
@@ -135,19 +136,29 @@ being sent twice.
 These are current behaviour, not bugs with a fix pending. They are listed so a
 surprise is a recognised one.
 
-### A busy group can outrun its watermark between digests
+### A very busy group can still outrun its watermark — but it says so
 
-A `summarize` chat is captured about fifteen rows deep. `since()` then looks
-for that group's watermark inside the captured window. If more than roughly
-fifteen messages have arrived since the last digest, the mark has already
-scrolled out of it, and everything captured is treated as new — so the digest
-covers the newest fifteen and quietly omits what fell between the mark and the
-top of the window. Nothing is logged when this happens.
+A `summarize` chat is captured 60 rows deep, and up to 120 messages reach one
+digest. Both are generous enough that a normal group never approaches them. A
+group that does — hundreds of messages between two digests — pushes its own
+watermark out of the captured window, and the messages between the mark and
+the top of that window are not covered.
 
-Nothing is lost from WhatsApp itself; only the digest is incomplete. The
-practical rule is to ask for `GROUPSUM` more often than a monitored group
-produces fifteen messages. The alternative — treating a missing mark as "return
-nothing" — would drop the messages *and* say nothing arrived, which is worse.
+That case is now **reported rather than hidden**. The digest itself carries:
+
+```
+⚠️ INCOMPLETE — not everything was covered:
+· <group> — the last summarised message is no longer in view; anything
+  between it and these is not covered
+```
+
+and the tick logs `groupsum_window_gap` with the chat and the reason. Nothing
+is lost from WhatsApp — open the chat to read the rest — and asking for
+`GROUPSUM` more often prevents it recurring.
+
+The watermark still advances when this happens. What *was* covered is covered,
+and refusing to advance would re-summarise it for ever without recovering the
+part already out of reach.
 
 ### Reading a chat spends its read receipt, at capture time
 
