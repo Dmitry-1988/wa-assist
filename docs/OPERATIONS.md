@@ -341,6 +341,18 @@ them forces a fresh consent flow.
 
 ### The daemon is running but doing nothing
 
+**Check the `error` key first.** A tick that dies early still logs an entry
+with an empty `actions` list, so a daemon that is failing every cycle looks
+identical to an idle one:
+
+```bash
+jq -c 'select(.error) | {at, error}' .wa-agent/daemon.log | tail -5
+```
+
+Do not filter the log down to `{at, actions}` while diagnosing — that is
+exactly what hides this. One such failure ran for half an hour looking like a
+quiet daemon while every GROUPSUM went unanswered.
+
 ```bash
 launchctl print gui/$(id -u)/<your-label> | grep -E 'state|runs|last exit'
 tail -5 .wa-agent/daemon.err.log

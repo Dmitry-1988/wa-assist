@@ -61,7 +61,7 @@ from .rotation import (
 )
 from .session import first_page, persistent_context
 from .state import read_state
-from .watermarks import advance, read_state, unseen
+from .watermarks import advance, read_reported, unseen
 
 PAGE_READY_TIMEOUT_S = 30.0
 
@@ -380,7 +380,7 @@ def _collect_group_messages(page, config: Config, result: dict) -> str | None:
         result["actions"].append({"groupsum": "no chats in summarize mode"})
         return None
 
-    marks = read_state(config)
+    marks = read_reported(config)
     chats = []
     unchanged = []
     gaps = []
