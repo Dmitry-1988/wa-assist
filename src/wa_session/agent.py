@@ -349,6 +349,37 @@ def poll(page, config: Config, draft_id: str, consume: bool = False) -> Command:
     )
 
 
+# How far back to look for the message a draft answers. Drafts expire in two
+# hours, so it is normally among the newest few.
+SOURCE_LOOKBACK = 40
+
+
+def _source_message_changed(page, quoted: str) -> str:
+    """Reason the draft must not be sent, or "" if the source still stands.
+
+    A draft answers one specific message. If that message has been edited or
+    deleted since it was captured, the reply no longer answers anything -- and
+    the user cannot tell, because their chat shows only the NEW text while the
+    draft was written against the old.
+
+    Refusing when the message cannot be found is deliberate. It costs a
+    re-request; sending a confident answer to a question that has changed
+    underneath it costs rather more.
+    """
+    if not quoted:
+        return ""
+    try:
+        from .messages import read_window
+
+        recent = read_window(page, minimum=SOURCE_LOOKBACK)
+    except Exception as exc:
+        return f"could not re-read the chat to confirm the message: {exc}"
+    if any((message.text or "") == quoted for message in recent):
+        return ""
+    return ("the message this answers is no longer in the chat as it was "
+            f"captured -- edited or deleted since. It read: {quoted[:120]!r}")
+
+
 def deliver(page, config: Config, draft_id: str, live: bool = False) -> dict:
     """Send an approved draft. Dry-run unless `live` is explicitly True."""
     pending = load_pending(config, draft_id)
@@ -375,6 +406,16 @@ def deliver(page, config: Config, draft_id: str, live: bool = False) -> dict:
         return {"ok": False, "reason": f"chat {draft.recipient!r} not found"}
     row.click(timeout=5000)
     wait_for_chat_ready(page, expected=draft.recipient)
+
+    stale = _source_message_changed(page, draft.quoted)
+    if stale:
+        # WhatsApp lets the sender EDIT a message after it arrives, and the
+        # edit replaces the text in place. On 2026-09-06 a message was
+        # captured, drafted against, and edited to something unrelated inside
+        # the same minute: the draft answered "where did we last light a
+        # bonfire" while the chat now read "when is your next psychiatrist
+        # appointment". Nothing checked, and an OK would have sent it.
+        return {"ok": False, "reason": stale}
 
     # Journal immediately BEFORE the click, never earlier: a crash mid-send
     # must not look unsent, but a pre-send refusal must not look sent either.

@@ -68,6 +68,7 @@ jq -c 'select(.actions|length>0) | {at, actions}' .wa-agent/daemon.log | tail -2
 | `context_unavailable` | `workspace-mcp` was not connected; **no tokens were spent** | usually transient; if it persists see below |
 | `stalled` | a reply failed to draft six times running | check MCP; the message is still queued |
 | `edit_refused` | the 5-revision cap was reached | redraft in an interactive session |
+| `sent: {ok: false}` | a pre-send check refused; the self-chat says why | usually an edited source message |
 | `session_overdue_hours` | past the rotation policy | `uv run wa-login --reset` |
 
 ### Things that are usually fine
@@ -298,6 +299,18 @@ Work down this list; each step is visible in `daemon.log`.
   `uv run wa-agent allow "<name>" --group --mode summarize`.
 - `summary_post_failed` means it was generated but not delivered; it retries
   automatically on the next `GROUPSUM`.
+
+### "It answered a question I never asked"
+
+Almost certainly the message was **edited**. WhatsApp lets the sender change a
+message after it arrives and replaces the text in place, so your chat shows
+only the new wording — while the draft was written against what was there when
+the daemon read it, minutes earlier. It looks like invention and is not.
+
+`deliver` now re-reads the chat before sending and refuses if the message the
+draft answers is no longer there word for word, saying so in the self-chat.
+The draft is dead at that point: send a new message in that chat if you still
+want a reply.
 
 ### My approval did nothing
 

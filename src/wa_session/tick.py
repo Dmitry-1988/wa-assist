@@ -140,6 +140,17 @@ def _handle_pending(page, config: Config, entry: dict, result: dict) -> None:
     if command.decision is Decision.APPROVE:
         sent = deliver(page, config, draft_id, live=True)
         result["actions"].append({"draft_id": draft_id, "sent": sent})
+        if not sent.get("ok"):
+            # An approval that produces nothing is the "dead daemon" failure:
+            # the user typed OK, the log knows why it refused, and they see
+            # silence. The pre-send checks exist precisely to refuse, so say so.
+            try:
+                post_note(page, f"⚠️ {draft_id} was NOT sent.\n\n"
+                                f"{sent.get('reason') or 'unknown reason'}\n\n"
+                                "Nothing was delivered. Send a new message in "
+                                "that chat if you still want a reply.")
+            except Exception as exc:
+                result["actions"].append({"refusal_note_failed": str(exc)})
     elif command.decision is Decision.REJECT:
         retire_draft(config, draft_id, "rejected in self-chat")
         result["actions"].append({"draft_id": draft_id, "rejected": True})
