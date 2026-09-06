@@ -30,7 +30,7 @@ def test_persists_across_instances(tmp_path):
 
 @pytest.mark.parametrize(
     "probe",
-    ["אקווה", "שכנים בבניין ", " שכנים בבניין", "ACME", "acme corp", "ACME Corp x"],
+    ["קבוצה", "שכנים בבניין ", " שכנים בבניין", "ACME", "acme corp", "ACME Corp x"],
 )
 def test_match_is_exact_only(allowlist, probe):
     # A contact can rename themselves; fuzzy matching would let them opt in.

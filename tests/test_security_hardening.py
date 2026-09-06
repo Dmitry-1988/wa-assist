@@ -283,7 +283,7 @@ def test_a_failed_digest_keeps_its_queue_item_and_watermarks(config, monkeypatch
     from wa_session.pipeline import QueueItem, write_queue_item, write_submission, \
         DraftSubmission, read_queue
     from wa_session.tick import _post_ready_summaries
-    from wa_session.watermarks import read_watermarks
+    from wa_session.watermarks import read_state
 
     item = QueueItem(queue_id="sum-1", chat="__summary__",
                      messages=[{"chat": "G", "messages": [{"msg_id": "m1"}]}])
@@ -296,7 +296,7 @@ def test_a_failed_digest_keeps_its_queue_item_and_watermarks(config, monkeypatch
     result = {"actions": []}
     assert _post_ready_summaries(object(), config, result) == 0
     assert [i.queue_id for i in read_queue(config)] == ["sum-1"], "item must survive"
-    assert read_watermarks(config) == {}, "watermarks must not advance"
+    assert read_state(config) == {}, "watermarks must not advance"
     assert any("summary_post_failed" in a for a in result["actions"])
 
 
@@ -307,8 +307,8 @@ def test_an_emoji_prefixed_note_is_recognised_on_read_back():
     text meant every digest looked undelivered and was posted again -- ten
     identical digests in one afternoon, 2026-09-02."""
     from wa_session.tick import _fingerprint
-    posted = "📋 GROUP DIGEST 13:16\n\nאקווה פמילי\n· Neighbour asks about a technician"
-    readback = "GROUP DIGEST 13:16 אקווה פמילי · Neighbour asks about a technician"
+    posted = "📋 GROUP DIGEST 13:16\n\nקבוצה לדוגמה\n· Neighbour asks about a technician"
+    readback = "GROUP DIGEST 13:16 קבוצה לדוגמה · Neighbour asks about a technician"
     assert _fingerprint(posted)[:60] in _fingerprint(readback)
 
 

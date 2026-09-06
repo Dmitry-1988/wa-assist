@@ -61,7 +61,7 @@ from .rotation import (
 )
 from .session import first_page, persistent_context
 from .state import read_state
-from .watermarks import advance, read_watermarks, window
+from .watermarks import advance, read_state, unseen
 
 PAGE_READY_TIMEOUT_S = 30.0
 
@@ -380,7 +380,7 @@ def _collect_group_messages(page, config: Config, result: dict) -> str | None:
         result["actions"].append({"groupsum": "no chats in summarize mode"})
         return None
 
-    marks = read_watermarks(config)
+    marks = read_state(config)
     chats = []
     unchanged = []
     gaps = []
@@ -394,19 +394,20 @@ def _collect_group_messages(page, config: Config, result: dict) -> str | None:
                 {"groupsum_skipped": entry.name, "reason": captured.get("reason")}
             )
             continue
-        # Only what has arrived since this chat was last summarised. Without
-        # this every digest restates the previous one and buries the new part.
-        seen = window(captured["messages"], marks.get(entry.name),
-                      cap=SUMMARY_MAX_MESSAGES)
-        if not seen.messages:
+        # Only what this chat has never had reported. A message that reached
+        # the user once is never new again, however far back the capture went.
+        fresh = unseen(captured["messages"], marks.get(entry.name),
+                       cap=SUMMARY_MAX_MESSAGES)
+        if not fresh.messages:
             unchanged.append(entry.name)
             continue
-        if seen.gap:
+        if fresh.gap:
             # Never let this pass in silence. The digest that follows is
             # incomplete, and only the daemon knows it -- the summariser is
             # given the messages, not the fact that some are missing.
-            gaps.append({"chat": entry.name, "reason": seen.reason})
-        chats.append({"chat": entry.name, "messages": seen.messages})
+            gaps.append({"chat": entry.name, "reason": fresh.reason})
+        chats.append({"chat": entry.name, "messages": fresh.messages,
+                      "context": fresh.context})
 
     if unchanged:
         result["actions"].append({"groupsum_unchanged": unchanged})

@@ -228,8 +228,11 @@ The whole message must be the command. **`OK #XXX but shorter` is ambiguous and
 never sends** — a caveat is not consent, and silence never is either. A Russian
 keyboard's `ОК` (Cyrillic О К) is accepted; it looks identical on screen.
 
-A digest covers only what has arrived since the last one posted, and says
-"nothing new" rather than restating itself. If it could not reach everything —
+A digest reports each message **once**. Everything that has appeared in a
+digest is recorded, so a group with nothing new says nothing at all rather
+than restating itself. A few already-reported messages are handed to the
+summariser as context — a reply makes no sense without what it answers — but
+they are never reported again. If it could not reach everything —
 a group that produced more between digests than one capture holds — it says
 that too, naming the group, rather than reading as a complete account.
 
@@ -238,8 +241,9 @@ that too, naming the group, rather than reading as a complete account.
 ```bash
 uv run wa-login [--status|--quick|--reset]
 uv run wa-agent list|allow|deny|chats|unread|pending|drop|read
+uv run wa-agent digest-catchup       # treat everything now as already digested
 uv run wa-agent tick                  # one cycle by hand
-uv run pytest                         # 534 tests
+uv run pytest                         # 539 tests
 uv run pytest -m "not browser"        # the fast subset
 ```
 

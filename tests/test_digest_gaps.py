@@ -1,5 +1,8 @@
 """A digest may be incomplete. It may never be incomplete in silence.
 
+The unit-level rules about what counts as new live in test_watermarks.py; this
+file is about the daemon reporting a shortfall rather than hiding it.
+
 Three ways messages used to disappear between a group and a digest, none of
 which left a trace in the log or the note:
 
@@ -18,65 +21,11 @@ from wa_session.config import Config
 from wa_session.pipeline import QueueItem, read_queue, write_queue_item
 from wa_session.tick import (SUMMARY_CAPTURE_DEPTH, SUMMARY_MAX_MESSAGES,
                              _collect_group_messages, _gap_notice)
-from wa_session.watermarks import advance, read_watermarks, since, window
+from wa_session.watermarks import ChatState, advance, read_state
 
 
 def msgs(*ids):
     return [{"msg_id": i, "text": i} for i in ids]
-
-
-# --- 1. the window itself ------------------------------------------------
-
-def test_a_mark_still_in_view_is_not_a_gap():
-    got = window(msgs("a", "b", "c"), "b")
-    assert got.messages == msgs("c")
-    assert got.gap is False and got.reason == ""
-
-
-def test_a_first_ever_digest_is_not_a_gap():
-    """No mark means nothing has been covered yet, not that something is lost."""
-    got = window(msgs("a", "b"), None)
-    assert got.messages == msgs("a", "b")
-    assert got.gap is False
-
-
-def test_a_mark_that_scrolled_out_of_view_is_a_gap():
-    """The conversation moved past the mark: what sat between is not here."""
-    got = window(msgs("x", "y"), "long-gone")
-    assert got.messages == msgs("x", "y"), "still return what we do have"
-    assert got.gap is True
-    assert "no longer in view" in got.reason
-
-
-def test_everything_covered_is_neither_new_nor_a_gap():
-    got = window(msgs("a", "b", "c"), "c")
-    assert got.messages == [] and got.gap is False
-
-
-# --- 2. the cap ----------------------------------------------------------
-
-def test_trimming_to_the_cap_is_reported():
-    got = window(msgs(*[f"m{i}" for i in range(10)]), None, cap=4)
-    assert [m["msg_id"] for m in got.messages] == ["m6", "m7", "m8", "m9"]
-    assert got.gap is True
-    assert "6 older message(s) left out" in got.reason
-
-
-def test_exactly_the_cap_is_not_a_gap():
-    got = window(msgs("a", "b", "c"), None, cap=3)
-    assert len(got.messages) == 3 and got.gap is False
-
-
-def test_a_missing_mark_and_an_overflowing_window_both_report():
-    got = window(msgs(*[f"m{i}" for i in range(10)]), "gone", cap=4)
-    assert len(got.messages) == 4 and got.gap is True
-
-
-def test_since_still_answers_what_it_always_did():
-    """The old helper keeps its contract; it just cannot tell you about gaps."""
-    assert since(msgs("a", "b", "c"), "a") == msgs("b", "c")
-    assert since(msgs("x"), "long-gone") == msgs("x")
-    assert since(msgs("a"), None) == msgs("a")
 
 
 # --- 3. the tick reports it ----------------------------------------------
@@ -217,7 +166,7 @@ def test_a_gap_does_not_stop_the_watermark_advancing(config, monkeypatch):
     monkeypatch.setattr("wa_session.tick.post_note", lambda page_, text, **kw: "id")
 
     _post_ready_summaries(FakePage(), config, {"actions": []})
-    assert read_watermarks(config) == {"G1": "m2"}
+    assert read_state(config)["G1"].seen == {"m1", "m2"}
 
 
 def test_the_summariser_is_never_handed_the_gap(config):
@@ -254,3 +203,56 @@ def test_the_warning_needs_no_list_marker_neutralising():
 
     notice = _gap_notice([{"chat": "G1", "reason": "the mark is gone"}])
     assert neutralize_list_markers(notice) == notice
+
+
+# --- 5. context reaches the summariser, and is not reported ---------------
+
+def test_context_travels_with_the_messages(config, monkeypatch):
+    """A reply is nonsense without what it answers, but the answer has already
+    been sent to the user once."""
+    advance(config, [{"chat": "G1", "messages": msgs("m1", "m2")}])
+    monkeypatch.setattr("wa_session.tick.read_chat",
+                        lambda page, name, depth=10: {
+                            "ok": True, "messages": msgs("m1", "m2", "m3")})
+    _collect_group_messages(FakePage(), config, {"actions": []})
+    block = read_queue(config)[0].messages[0]
+    assert [m["msg_id"] for m in block["messages"]] == ["m3"]
+    assert [m["msg_id"] for m in block["context"]] == ["m1", "m2"]
+
+
+def test_context_is_not_recorded_as_reported(config, monkeypatch):
+    """Otherwise it vanishes from the digest that actually needs to say it."""
+    from wa_session.pipeline import DraftSubmission, write_submission
+    from wa_session.tick import _post_ready_summaries
+
+    write_queue_item(config, QueueItem(
+        queue_id="sum-ctx", chat="__summary__",
+        messages=[{"chat": "G1", "messages": msgs("new"),
+                   "context": msgs("old")}]))
+    write_submission(config, "sum-ctx",
+                     DraftSubmission(queue_id="sum-ctx", body="d", sources=[]))
+    monkeypatch.setattr("wa_session.tick.post_note", lambda p, text, **kw: "id")
+    _post_ready_summaries(FakePage(), config, {"actions": []})
+    assert read_state(config)["G1"].seen == {"new"}
+
+
+def test_the_summariser_is_told_to_read_context_not_report_it():
+    from wa_session.drafter import build_summary_prompt
+
+    prompt = build_summary_prompt(
+        [{"chat": "G", "messages": msgs("new"), "context": msgs("old")}], "q1")
+    assert "context" in prompt
+    assert "Report `messages` only" in prompt
+
+
+def test_a_group_with_nothing_new_never_reaches_a_paid_run(config, monkeypatch):
+    """The user's complaint: groups with no unread turning up in the digest."""
+    captured = msgs("m1", "m2", "m3")
+    advance(config, [{"chat": "G1", "messages": captured}])
+    monkeypatch.setattr("wa_session.tick.read_chat",
+                        lambda page, name, depth=10: {"ok": True,
+                                                      "messages": captured})
+    result = {"actions": []}
+    assert _collect_group_messages(FakePage(), config, result) is None
+    assert read_queue(config) == []
+    assert {"groupsum_unchanged": ["G1"]} in result["actions"]

@@ -18,7 +18,7 @@ from wa_session.tick import _fingerprint
 
 pytestmark = pytest.mark.browser
 
-SENT = "📋 GROUP DIGEST 13:16\n\nאקווה פמילי\n· Neighbour asks about a technician"
+SENT = "📋 GROUP DIGEST 13:16\n\nקבוצה לדוגמה\n· Neighbour asks about a technician"
 
 
 def row(pre: str, inner: str) -> str:
@@ -92,7 +92,7 @@ def test_hebrew_and_digits_survive_the_round_trip(render):
     body = '<div id="main">' + row("[13:16, 9/2/2026] Me: ",
                                    emoji_as_image(SENT.replace("\n", " "))) + "</div>"
     text = rendered(render(body))
-    assert "אקווה" in text
+    assert "קבוצה" in text
     assert "13:16" in text
 
 
