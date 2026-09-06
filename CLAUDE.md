@@ -60,6 +60,15 @@ The answer schema still **rejects** `chat`/`recipient`/`to`/`send`/`live`/`draft
   one-time reply saying so — those drafts are filtered out of `pending_drafts`,
   so without this they reach no code path at all and look like a dead daemon.
 - `propose`/`deliver` refuse any chat not in `reply` mode.
+- **A draft answers ONE message, and WhatsApp lets the sender edit it.** The
+  edit replaces the text in place, so the user's chat shows only the new
+  wording while the draft was written against the old — it reads exactly like
+  the model inventing a question. Seen 2026-09-06: captured 20:39, edited
+  20:39, draft posted 20:41 answering a question that no longer existed.
+  `deliver` re-reads the chat and refuses unless `draft.quoted` is still there
+  verbatim, and refuses too when it cannot check. A refused send is ANNOUNCED
+  in the self-chat: an approval that produces nothing is the dead-daemon
+  failure again.
 - Recipient verified on two independent signals (header title + composer
   aria-label); any conflict refuses.
 - Never infer availability from one calendar. Query all three (see memory).
@@ -148,7 +157,7 @@ uv run wa-agent list|allow|deny # allowlist (--mode reply|summarize)
 uv run wa-agent unread|chats|pending|drop|read|digest-catchup
 uv run wa-agent propose|poll|send [--live]
 uv run wa-agent tick            # one unattended cycle (the daemon runs this)
-uv run pytest                   # 566 tests; -m "not browser" for the fast ones
+uv run pytest                   # 573 tests; -m "not browser" for the fast ones
 ```
 
 Self-chat commands: `OK #XXX`, `NO #XXX`, `EDIT #XXX: …`, `GROUPSUM`.
