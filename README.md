@@ -13,8 +13,8 @@ Ann: what date did we drive up for Max's wedding? and did I ever pay you
         │
         ▼  daemon captures the chat, queues it
    Claude drafts, read-only Gmail + Calendar, no way to reach WhatsApp
-        │
-        ▼  posted to YOUR self-chat
+        │  hands back text, and nothing else
+        ▼  daemon posts it to YOUR self-chat
    🤖 DRAFT #47Q → Ann
    Sources:
      · Calendar "Max & Dana — wedding", Wed 3 June
@@ -28,7 +28,7 @@ Ann: what date did we drive up for Max's wedding? and did I ever pay you
    expires 21:26
         │
         ▼  you type OK #47Q
-   delivered
+   daemon sends it to Ann
 ```
 
 Both halves of the question are answered and nothing else is. Where the answer
