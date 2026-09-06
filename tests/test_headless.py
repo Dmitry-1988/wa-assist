@@ -146,3 +146,20 @@ def test_neither_tick_phase_asks_for_a_window():
     src = inspect.getsource(tick)
     assert "persistent_context(config.profile_dir, quiet=True)" in src
     assert "headless=False" not in src
+
+
+def test_only_the_login_flow_ever_asks_for_a_window():
+    """The daemon must never surprise the user with one, and neither should a
+    read-only inspection command. `wa-login` is the sole exception: a QR you
+    cannot see is not much use."""
+    import inspect
+
+    from wa_session import agent_cli, cli, tick
+
+    for module in (tick, agent_cli):
+        src = inspect.getsource(module)
+        assert "headless=False" not in src, f"{module.__name__} asks for a window"
+
+    src = inspect.getsource(cli)
+    # Only the two login paths (_rotate's logout and _run's QR) stay headed.
+    assert src.count("headless=False") == 2

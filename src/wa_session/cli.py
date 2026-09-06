@@ -239,7 +239,8 @@ def unread_main(argv: list[str] | None = None) -> int:
         print(f"wa-unread: {exc}", file=sys.stderr)
         return 2
 
-    with persistent_context(config.profile_dir, headless=False) as context:
+    # Read-only inspection: no reason to put a window on the user's screen.
+    with persistent_context(config.profile_dir, quiet=True) as context:
         page = first_page(context)
         page.goto(WHATSAPP_URL, wait_until="domcontentloaded")
         state = wait_for_state(page, PAGE_READY_TIMEOUT_S)
@@ -289,7 +290,7 @@ def read_main(argv: list[str] | None = None) -> int:
         print(f"wa-read: {exc}", file=sys.stderr)
         return 2
 
-    with persistent_context(config.profile_dir, headless=False) as context:
+    with persistent_context(config.profile_dir, quiet=True) as context:
         page = first_page(context)
         page.goto(WHATSAPP_URL, wait_until="domcontentloaded")
         if wait_for_state(page, PAGE_READY_TIMEOUT_S) is not PageState.LOGGED_IN:
