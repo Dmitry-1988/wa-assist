@@ -156,10 +156,52 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.example.wa-agent.pli
 launchctl print gui/$(id -u)/com.example.wa-agent | grep state
 ```
 
-The daemon runs Chromium headless, so nothing appears on your screen. launchd
-caches the plist at bootstrap, so after editing it you must `bootout` and
-`bootstrap` again. `wa-login` stays headed — you have to see the QR to scan
-it — so linking still needs the Aqua GUI session.
+launchd caches the plist at bootstrap, so after editing it you must `bootout`
+and `bootstrap` again.
+
+---
+
+## Nothing appears on your screen
+
+The daemon runs Chromium **headless**. `wa-login` is the only command that
+opens a window, because you have to see the QR to scan it.
+
+| headless | headed |
+|---|---|
+| `wa-agent tick` — the daemon, both phases | `wa-login` — the QR |
+| `wa-login --status` (the live check) | `wa-login --reset` — the logout inside a rotation |
+| every `wa-agent` subcommand | |
+| `wa-unread`, `wa-read` | |
+
+**The daemon cannot log in**, so it will never surprise you with a window —
+not even when the session expires. Linking needs a scan from your phone, so it
+reports `blocked: not logged in` and warns you in the self-chat instead.
+`wa-agent --visible` opens a window on purpose, for watching what it does.
+
+This is worth stating because it was not true until recently, and the reason
+is a good warning. WhatsApp Web answers headless Chromium with *"WhatsApp
+works with Google Chrome 100+"* rather than the app, because headless
+advertises `HeadlessChrome/…` in its User-Agent. That page was read as "it
+does not render headless", and for months every browser step ran headed and
+was minimised through CDP — which is not invisible either: the window is
+created frontmost and minimised a moment later, so each launch stole focus and
+reshuffled macOS Spaces, about thirty times an hour at a 120s interval.
+
+It renders fine. It just wanted an ordinary Chrome UA (`session.CHROME_UA`),
+which is now sent headed and headless alike so a login and a tick look like
+the same browser.
+
+**If WhatsApp ever changes that sniff**, set `WA_HEADED=1` to restore the old
+headed-and-minimised behaviour without touching the code. The symptom is every
+tick logging `blocked: not logged in` — and `wa-login --status` will agree,
+because it runs headless too and sees the same notice. The check that tells
+the two apart is:
+
+```bash
+WA_HEADED=1 uv run wa-login --status     # LOGGED IN? then the UA is the problem
+```
+
+It still needs the Aqua GUI session for `wa-login`.
 
 ---
 
@@ -290,13 +332,9 @@ Verified against the live site, most recently on 2026-09-05:
   every command arrives. Reads therefore start at the bottom and merge each
   window as they scroll up. Scrolling costs about 6s, so reads are cached per
   page.
-- **It gates on the User-Agent, not on headless.** Headless Chromium
-  advertises `HeadlessChrome/...`, and WhatsApp answers with a
-  "WhatsApp works with Google Chrome 100+" notice rather than the app. For
-  months that was read here as "it does not render headless", and every
-  browser step ran headed and was minimised through CDP. Sending an ordinary
-  Chrome UA (`session.CHROME_UA`) renders everything, headless included.
-  Set `WA_HEADED=1` if Meta ever changes the sniff.
+- **It gates on the User-Agent, not on headless** — the misreading that shaped
+  this project for months. See [Nothing appears on your
+  screen](#nothing-appears-on-your-screen).
 - Nothing useful exists at `DOMContentLoaded`; the app needs a few seconds.
   `wait_for_state` polls instead of reading the DOM immediately.
 - WhatsApp shows a "What's new" dialog after updates that swallows clicks.

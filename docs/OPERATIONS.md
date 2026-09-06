@@ -137,6 +137,50 @@ being sent twice.
 
 ---
 
+## The browser
+
+Every browser step runs headless, so the daemon is invisible. The one
+exception is `wa-login`, which must show you a QR.
+
+This rests on one thing: WhatsApp Web gates on the User-Agent. Headless
+Chromium advertises `HeadlessChrome/…`, and WhatsApp answers that with a
+browser-support notice instead of the app — the page renders, it just is not
+the page you wanted. `session.CHROME_UA` is sent on every launch, headed and
+headless, so a login and a tick look like the same browser to Meta.
+
+### If Meta changes the sniff
+
+The symptom is specific and easy to misread: **every tick logs
+`blocked: not logged in` while the session is genuinely fine.** `wa-login
+--status` will report the same, because it runs headless too and sees the same
+notice. A real logout looks identical from the outside.
+
+To tell them apart, and to keep working meanwhile:
+
+```bash
+WA_HEADED=1 uv run wa-login --status
+```
+
+If that says `LOGGED IN`, the session is fine and the UA is the problem. Put
+`WA_HEADED=1` in the plist's `EnvironmentVariables` and the daemon goes back to
+a real minimised window — intrusive, but working — until `CHROME_UA` is
+updated.
+
+Note that a minimised window is not an invisible one. It is created frontmost
+and minimised a moment later, so every launch takes focus. At a 120s interval
+and up to two launches per productive tick, that is roughly thirty focus
+steals an hour, and on macOS it reshuffles Spaces. That is why it is the
+fallback and not the default.
+
+### Watching what it does
+
+```bash
+uv run wa-agent --visible unread     # open a real window for one command
+uv run wa-agent --visible tick
+```
+
+---
+
 ## Known limitations
 
 These are current behaviour, not bugs with a fix pending. They are listed so a
@@ -231,6 +275,25 @@ Work down this list; each step is visible in `daemon.log`.
 - If the draft was superseded, sent or expired, you now get a note saying so.
 - Drafts expire two hours after posting.
 
+Two fixed bugs produced exactly this symptom, both silent, and they are worth
+recognising if anything like them returns:
+
+- **The read could not see the newest messages.** WhatsApp virtualises the
+  message list at both ends: rows scrolled away from stay in the DOM with
+  empty text and were dropped as blanks. Scrolling to the top to load history
+  therefore discarded the bottom — where every command arrives. `read_after`
+  could not find the draft it was told to start from, returned nothing by its
+  own safety rule, and an `OK #XXX` plainly in the chat did nothing at all.
+  Reads now start at the bottom and merge each window as they scroll up.
+- **The draft was never armed.** `propose` posted a draft and read it back
+  once, immediately, before WhatsApp had transmitted it — so it raised, and
+  the draft sat in the self-chat with nothing to approve. Those show as
+  `propose_failed` in the log and, unlike a real draft, do not appear in
+  `uv run wa-agent pending`.
+
+`pending` is the authority on what is actually approvable. A draft in the
+self-chat that is not listed there is inert, whatever it looks like.
+
 ### `workspace-mcp` keeps failing to connect
 
 The drafting run is killed at the handshake, before any tokens are spent, and
@@ -266,6 +329,9 @@ Measured over 500 ticks on one machine:
 | browser open + WhatsApp load | ~6s, twice per productive tick |
 | opening a chat | ~1.4s |
 | the drafting run itself | 20 to 60s |
+
+These were measured with a headed browser, before the switch to headless, and
+have not been re-measured since.
 
 The interval dominates everything else, so it is the only knob worth turning
 first. An idle tick costs about 20 seconds, which sets the price:
