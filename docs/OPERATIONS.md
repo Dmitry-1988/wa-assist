@@ -186,6 +186,17 @@ uv run wa-agent --visible tick
 These are current behaviour, not bugs with a fix pending. They are listed so a
 surprise is a recognised one.
 
+### A gap on every group at once is a bug, not a busy group
+
+`groupsum_window_gap` naming **all** your groups in one digest does not mean
+they all got busy. It means the capture lost its own tail and the watermark
+fell outside it, so everything read was treated as new. The digest that
+follows repeats things you have already been told.
+
+That happened on 2026-09-06 and is fixed — `capture_chat` reads bottom-first
+through `messages.read_window` — but the shape is worth recognising: one or
+two groups gapping is plausible, all of them at once is not.
+
 ### A very busy group can still outrun its watermark — but it says so
 
 A `summarize` chat is captured 60 rows deep, and up to 120 messages reach one

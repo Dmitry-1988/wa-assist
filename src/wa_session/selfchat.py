@@ -14,13 +14,10 @@ from . import selectors
 from .compose import (SendResult, header_recipient, send_message,
                       wait_for_chat_ready)
 from .interstitials import dismiss
-from .messages import Message, extract_messages, load_more
+from .messages import (Message, extract_messages, merge_older,
+                       read_window, scroll_to_bottom, scroll_up_one)
 
 SELF_CHAT_ROW = '[data-testid="message-yourself-row"]'
-
-# Consecutive scroll steps that may add nothing before a read concludes it has
-# reached the start of the conversation.
-STALL_STEPS = 3
 
 
 class SelfChatUnavailable(Exception):
@@ -68,121 +65,6 @@ def invalidate(page) -> None:
         pass
 
 
-def _scroll_to_bottom(page) -> None:
-    """Put the newest messages back in the viewport, and rendered."""
-    for scroller in selectors.MSG_SCROLLER:
-        try:
-            node = page.locator(scroller).first
-            if node.count():
-                node.evaluate("el => { el.scrollTop = el.scrollHeight; }")
-                break
-        except Exception:
-            continue
-    page.wait_for_timeout(900)
-
-
-def _scroll_up_one(page) -> float | None:
-    """Scroll up ONE viewport. Returns the resulting scrollTop, None if there
-    is no scroller.
-
-    One viewport at a time, not `scrollTop = 0`: the jump to the very top is
-    what unrenders everything below it. Reaching the top is still how WhatsApp
-    is asked to load older history, this just gets there in steps that can be
-    read on the way.
-
-    The returned position is what tells the caller whether it is still
-    travelling or has arrived -- measured on the live chat, it takes six steps
-    to cross a loaded page before any older history appears.
-    """
-    for scroller in selectors.MSG_SCROLLER:
-        try:
-            node = page.locator(scroller).first
-            if node.count():
-                return node.evaluate(
-                    "el => { el.scrollTop = Math.max("
-                    "0, el.scrollTop - el.clientHeight * 0.8);"
-                    " return el.scrollTop; }")
-        except Exception:
-            continue
-    return None
-
-
-def _merge_older(window: list[Message], newer: list[Message]) -> list[Message]:
-    """Prepend the part of `window` that sits above `newer`.
-
-    The two overlap, because a scroll step is smaller than a viewport. Find
-    where `newer` begins inside `window` and keep everything before it.
-    """
-    if not newer:
-        return list(window)
-    head = newer[0].msg_id
-    if head:
-        for index, message in enumerate(window):
-            if message.msg_id == head:
-                return window[:index] + newer
-    known = {m.msg_id for m in newer if m.msg_id}
-    return [m for m in window if m.msg_id and m.msg_id not in known] + newer
-
-
-def _read_windows(page, minimum: int, max_steps: int = 20) -> list[Message]:
-    """Read upwards from the bottom, keeping what scrolls out of view.
-
-    `load_more` reaches its target by setting scrollTop to 0, and WhatsApp
-    then unrenders the rows it has scrolled away from. Those rows stay in the
-    DOM with empty text, and `extract_messages` drops empty rows -- so reading
-    after a scroll to the top returns the OLDEST messages and silently omits
-    the newest. Measured on a 45-message self-chat: `read(limit=60)` returned
-    45 messages, none of which were the three most recent.
-
-    That is the worst possible half to lose. Every command arrives at the
-    bottom, so `read_after` could not find the draft it was told to start
-    from, returned nothing by its own safety rule, and an `OK #XXX` sitting
-    plainly in the chat was never seen.
-
-    So: extract at the bottom first, then scroll up a window at a time and
-    merge each view onto the front. Nothing that has been seen is lost when
-    the next scroll unrenders it.
-    """
-    _scroll_to_bottom(page)
-    merged = extract_messages(page)
-
-    # A step that adds nothing is not proof the history has ended. WhatsApp
-    # only fetches older messages once the pane is scrolled to the very top,
-    # and the fetch is asynchronous, so the first step or two after arriving
-    # there legitimately return what we already have. Breaking on the first
-    # of those capped every deep read at one screenful.
-    stalled = 0
-    last_top = None
-    for _ in range(max_steps):
-        if len(merged) >= minimum:
-            break
-        before = len(merged)
-        top = _scroll_up_one(page)
-        if top is None:
-            break
-        page.wait_for_timeout(1200)
-        merged = _merge_older(extract_messages(page), merged)
-
-        # Two different reasons a step can add nothing, and only one of them
-        # means stop. While scrollTop is still falling we are crossing a page
-        # we have already read; that is progress, not exhaustion. Counting it
-        # as a stall capped every deep read at one screenful.
-        grew = len(merged) > before
-        travelling = last_top is None or top < last_top - 1
-        last_top = top
-        if grew or travelling:
-            stalled = 0
-        else:
-            stalled += 1
-            if stalled >= STALL_STEPS:
-                break      # at the top, and nothing older is arriving
-
-    # Leave the newest rendered. Later reads pass scroll=False and would
-    # otherwise be looking at whatever this call happened to stop on.
-    _scroll_to_bottom(page)
-    return _merge_older(merged, extract_messages(page))
-
-
 def read(page, limit: int = 60, refresh: bool = False,
          scroll: bool = True) -> list[Message]:
     """Read the self-chat, oldest first, including the newest messages.
@@ -209,7 +91,7 @@ def read(page, limit: int = 60, refresh: bool = False,
     if scroll:
         # Scrolling is what makes this correct, and it is not cheap, so a tick
         # pays for it once: several callers read the self-chat per cycle.
-        messages = _read_windows(page, minimum=want)
+        messages = read_window(page, minimum=want)
     else:
         messages = extract_messages(page)
     if scroll:

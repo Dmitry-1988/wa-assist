@@ -135,13 +135,21 @@ uv run wa-agent list|allow|deny # allowlist (--mode reply|summarize)
 uv run wa-agent unread|chats|pending|drop|read
 uv run wa-agent propose|poll|send [--live]
 uv run wa-agent tick            # one unattended cycle (the daemon runs this)
-uv run pytest                   # 532 tests; -m "not browser" for the fast ones
+uv run pytest                   # 534 tests; -m "not browser" for the fast ones
 ```
 
 Self-chat commands: `OK #XXX`, `NO #XXX`, `EDIT #XXX: …`, `GROUPSUM`.
 
 ## Hard-won facts — check before "fixing" these
 
+- **Virtualisation applies to GROUP capture too, not just the self-chat.**
+  `capture_chat` used `load_more`, so raising `SUMMARY_CAPTURE_DEPTH` from 15
+  to 60 made every deep capture scroll to the top and drop the tail. GROUPSUM's
+  watermark is a RECENT message, so it fell outside the window, all four groups
+  reported a gap at once, and the entire history was re-summarised as new —
+  a digest full of things the user had already read. At depth 15 `load_more`
+  never scrolled at all, which is the only reason it had looked correct. Both
+  paths now go through `messages.read_window`.
 - **WhatsApp virtualises the message list, and it cuts BOTH ways.** Reopening
   a chat can render ONE row of nineteen, so `selfchat.read` must scroll — the
   daemon otherwise reads the self-chat, where every GROUPSUM and approval
