@@ -15,6 +15,7 @@ Sending requires ALL of:
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -243,6 +244,50 @@ def _fresh_draft_id(config: Config, attempts: int = 40) -> str:
     raise RuntimeError("could not find an unused draft id")
 
 
+def _post_and_locate(page, text: str, draft_id: str,
+                     settle_s: float = 12.0) -> str:
+    """Post a draft and wait for it to really be there. Returns its message id.
+
+    A single read straight after `post` is not enough, and believing it was
+    cost seven paid runs and seven orphan drafts in one afternoon:
+
+    * `selfchat.post` RETURNS a SendResult; it does not raise when the send is
+      refused after the click. Discarding it turned "never posted" into the
+      misleading "posted ... but could not locate its message id".
+    * A genuine "sent" is not yet transmitted when the call returns. Reading
+      immediately finds nothing, `propose` raises, the caller closes the
+      browser -- and the message either lands a moment later with no pending
+      entry to arm it, or is dropped with the context.
+
+    `post_note` already learned this for digests; its docstring claimed drafts
+    were immune because propose "reads its message back", which was true only
+    of the reading, not of the waiting. So: poll until the id appears.
+    """
+    outcome = post(page, text)
+    if outcome is not None:
+        if getattr(outcome, "dry_run", False):
+            raise RuntimeError(f"draft {draft_id} was a dry run; nothing was posted")
+        if not getattr(outcome, "ok", True):
+            raise RuntimeError(
+                f"draft {draft_id} was not posted: {getattr(outcome, 'detail', '')}"
+            )
+
+    deadline = time.monotonic() + settle_s
+    while True:
+        try:
+            # scroll=False: only the newest messages matter, and a full
+            # scrolling read costs ~6s of the settle budget it is spending.
+            marker = find_message_id(read(page, limit=8, refresh=True,
+                                          scroll=False), draft_id)
+            if marker:
+                return marker
+        except Exception:
+            pass
+        if time.monotonic() >= deadline:
+            return ""
+        page.wait_for_timeout(500)
+
+
 def propose(page, config: Config, chat: str, body: str,
             sources: list[str] | None = None, quoted: str = "",
             ttl_hours: float = 2.0, revision: int = 0) -> PendingDraft:
@@ -266,10 +311,7 @@ def propose(page, config: Config, chat: str, body: str,
         ttl_hours=ttl_hours, revision=revision,
     )
     text = render_draft_message(draft, audience=entry.audience())
-    post(page, text)
-
-    messages = read(page)
-    marker = find_message_id(messages, draft.draft_id)
+    marker = _post_and_locate(page, text, draft.draft_id)
     if not marker:
         # Without it, read_after returns EVERY visible message instead of only
         # those newer than the draft -- so an older command bearing the same id
