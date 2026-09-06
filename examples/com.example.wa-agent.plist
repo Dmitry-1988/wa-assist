@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  One unattended cycle every 300 seconds.
+  One unattended cycle every 120 seconds.
 
   Before installing, change:
     * the Label, if you want your own (set WA_DAEMON_LABEL to match)

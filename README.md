@@ -181,9 +181,9 @@ A digest covers only what has arrived since the last one posted, and says
 
 ```bash
 uv run wa-login [--status|--quick|--reset]
-uv run wa-agent list|allow|deny|chats|unread|pending|drop
+uv run wa-agent list|allow|deny|chats|unread|pending|drop|read
 uv run wa-agent tick                  # one cycle by hand
-uv run pytest                         # 416 tests
+uv run pytest                         # 466 tests
 uv run pytest -m "not browser"        # the fast subset
 ```
 
@@ -266,8 +266,13 @@ privilege-escalation finding.
 
 ## Notes on WhatsApp Web
 
-Verified against the live site on 2026-08-28:
+Verified against the live site, most recently on 2026-09-05:
 
+- **The message list is virtualised.** Reopening a chat can render one row
+  out of nineteen, so anything that reads a conversation must scroll first.
+  Skipping that made the daemon read the self-chat — where every approval and
+  `GROUPSUM` arrives — through a keyhole, and ignore commands that were plainly
+  there. Scrolling costs about 6s, so reads are cached per page.
 - **It does not render under headless Chromium at all.** The page loads but
   stays empty. Every browser step here runs headed for that reason, including
   rotation's logout — a blank headless page made the unlink look successful

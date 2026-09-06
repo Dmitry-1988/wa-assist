@@ -65,7 +65,7 @@ jq -c 'select(.actions|length>0) | {at, actions}' .wa-agent/daemon.log | tail -2
 | `blocked: not logged in` | the session is gone | `uv run wa-login` and scan |
 | `needs_attention: ambiguous` | a command was not an exact `OK`/`NO`/`EDIT` | retype it as a whole message |
 | `context_unavailable` | `workspace-mcp` was not connected; **no tokens were spent** | usually transient; if it persists see below |
-| `stalled` | a reply could not be drafted for many attempts | check MCP; the message is still queued |
+| `stalled` | a reply failed to draft six times running | check MCP; the message is still queued |
 | `edit_refused` | the 5-revision cap was reached | redraft in an interactive session |
 | `session_overdue_hours` | past the rotation policy | `uv run wa-login --reset` |
 
@@ -130,6 +130,53 @@ being sent twice.
 
 ---
 
+## Known limitations
+
+These are current behaviour, not bugs with a fix pending. They are listed so a
+surprise is a recognised one.
+
+### A busy group can outrun its watermark between digests
+
+A `summarize` chat is captured about fifteen rows deep. `since()` then looks
+for that group's watermark inside the captured window. If more than roughly
+fifteen messages have arrived since the last digest, the mark has already
+scrolled out of it, and everything captured is treated as new — so the digest
+covers the newest fifteen and quietly omits what fell between the mark and the
+top of the window. Nothing is logged when this happens.
+
+Nothing is lost from WhatsApp itself; only the digest is incomplete. The
+practical rule is to ask for `GROUPSUM` more often than a monitored group
+produces fifteen messages. The alternative — treating a missing mark as "return
+nothing" — would drop the messages *and* say nothing arrived, which is worse.
+
+### Reading a chat spends its read receipt, at capture time
+
+Before any draft exists. A `NO #XXX` cannot take it back, and because the chat
+is no longer unread nothing re-queues it. Re-open the topic by sending a new
+message; that makes the chat unread again and it queues normally.
+
+### The daemon cannot rotate its own session
+
+Linking needs a QR scanned from the phone. It warns in the self-chat at 6h, 2h
+and 30m of remaining life, then falls back to a macOS notification once the
+self-chat itself is gone with the session. The 24h clock is this project's
+policy, not WhatsApp's: past the deadline the daemon keeps working and only
+warns, unless `WA_ENFORCE_ROTATION=1`.
+
+Note that a plain `wa-login` **before** the deadline is a no-op — it finds a
+valid session and prints "within policy". Only `--reset` (or a login after
+expiry) unlinks, wipes and restarts the clock.
+
+### Concurrency is one profile at a time
+
+`wa-login` takes the profile lock for its whole run and waits up to 240s for
+the daemon to finish a tick before refusing. Ticks that collide log
+`skipped: profile in use by another process` and simply try again next
+interval. This is why an interval below ~120s starts making interactive
+commands wait.
+
+---
+
 ## Troubleshooting
 
 ### No draft appeared for an incoming message
@@ -186,7 +233,7 @@ launchctl print gui/$(id -u)/<your-label> | grep -E 'state|runs|last exit'
 tail -5 .wa-agent/daemon.err.log
 ```
 
-`runs` should climb every 300s. If `last exit code` is non-zero, the stderr log
+`runs` should climb every `StartInterval` seconds (120 by default). If `last exit code` is non-zero, the stderr log
 has the traceback. Remember launchd caches the plist: after editing it you must
 `bootout` then `bootstrap`.
 

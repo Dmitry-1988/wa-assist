@@ -113,10 +113,10 @@ The answer schema still **rejects** `chat`/`recipient`/`to`/`send`/`live`/`draft
 uv run wa-login                 # QR scan; rotates if >24h old
 uv run wa-login --status        # checks WhatsApp itself (--quick = record only)
 uv run wa-agent list|allow|deny # allowlist (--mode reply|summarize)
-uv run wa-agent unread|chats|pending
+uv run wa-agent unread|chats|pending|drop|read
 uv run wa-agent propose|poll|send [--live]
 uv run wa-agent tick            # one unattended cycle (the daemon runs this)
-uv run pytest                   # ~250 tests; -m "not browser" for the fast ones
+uv run pytest                   # 466 tests; -m "not browser" for the fast ones
 ```
 
 Self-chat commands: `OK #XXX`, `NO #XXX`, `EDIT #XXX: …`, `GROUPSUM`.
@@ -174,8 +174,7 @@ journal.jsonl, queue/, outbox/, daemon.log. All gitignored, all `0600`/`0700`.
 ## Daemon
 
 `~/Library/LaunchAgents/<your-label>.plist` (set `WA_DAEMON_LABEL` to match),
-every 300s (real gaps
-300–466s). Needs the Aqua GUI session.
+every 120s. Needs the Aqua GUI session.
 
 A recorded session can be **stale**: WhatsApp may drop the link while the local
 record still reads "valid" — seen 2026-09-01, record 2h51m old and healthy while
