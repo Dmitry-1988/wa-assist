@@ -61,6 +61,11 @@ class QueueItem:
     # visible instead of silently swallowing the message.
     attempts: int = 0
     stalled_notified: bool = False
+    # Summary items only: chats whose digest is knowingly incomplete, as
+    # {"chat": name, "reason": why}. The daemon writes this and the daemon
+    # reads it back when posting -- it is never shown to the summariser, which
+    # would only be able to guess at it.
+    gaps: list[dict] = field(default_factory=list)
 
     def as_dict(self) -> dict:
         data = dict(self.__dict__)
@@ -79,6 +84,7 @@ class QueueItem:
             created_at=data.get("created_at", ""),
             attempts=int(data.get("attempts", 0)),
             stalled_notified=bool(data.get("stalled_notified", False)),
+            gaps=data.get("gaps", []),
         )
 
 
