@@ -135,19 +135,35 @@ uv run wa-agent list|allow|deny # allowlist (--mode reply|summarize)
 uv run wa-agent unread|chats|pending|drop|read
 uv run wa-agent propose|poll|send [--live]
 uv run wa-agent tick            # one unattended cycle (the daemon runs this)
-uv run pytest                   # 510 tests; -m "not browser" for the fast ones
+uv run pytest                   # 531 tests; -m "not browser" for the fast ones
 ```
 
 Self-chat commands: `OK #XXX`, `NO #XXX`, `EDIT #XXX: …`, `GROUPSUM`.
 
 ## Hard-won facts — check before "fixing" these
 
-- **WhatsApp virtualises the message list.** Reopening a chat can render ONE
-  row of nineteen. `selfchat.read` must call `load_more`, or the daemon reads
-  the self-chat — where every GROUPSUM and approval arrives — through a
-  keyhole and silently ignores commands that are plainly there. Scrolling costs
-  ~6s, so a read is cached per page and invalidated by `post`; the delivery
-  read-back passes `scroll=False` since it only wants the newest message.
+- **WhatsApp virtualises the message list, and it cuts BOTH ways.** Reopening
+  a chat can render ONE row of nineteen, so `selfchat.read` must scroll — the
+  daemon otherwise reads the self-chat, where every GROUPSUM and approval
+  arrives, through a keyhole. But rows scrolled away from stay in the DOM with
+  EMPTY TEXT, and `extract_messages` drops empty rows: `load_more` reaches its
+  target with `scrollTop = 0`, so reading after it returned the OLDEST
+  messages and silently dropped the NEWEST. Measured 2026-09-06 on a
+  45-message self-chat: `read(limit=60)` returned 45 messages, none of them
+  the three most recent, and it was non-monotonic (25 and 60 lost the newest,
+  40 did not). Every command arrives at the bottom, so `read_after` could not
+  find the marker it was told to start from, returned `[]` by its own safety
+  rule, and an `OK #XXX` plainly in the chat was never seen — verified end to
+  end. `_read_windows` now extracts at the BOTTOM first and merges each window
+  onto the front as it scrolls up, then returns to the bottom.
+- **Scrolling up is not the same as having arrived.** It took SIX steps to
+  cross the loaded page before WhatsApp prepended any older history (25 rows →
+  48). A stall counter that treated "this step added nothing" as "the history
+  has ended" stopped after three and capped every deep read at one screenful.
+  `_read_windows` only counts a stall once `scrollTop` has stopped falling.
+- Scrolling costs ~6s, so a read is cached per page and invalidated by `post`;
+  the delivery read-back passes `scroll=False` since it only wants the newest
+  message — which is why `_read_windows` must leave the pane at the bottom.
 
 - **WhatsApp Web renders headless fine — it gates on the User-Agent.**
   Headless Chromium says `HeadlessChrome/...` and WhatsApp answers with
