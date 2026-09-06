@@ -197,7 +197,7 @@ that too, naming the group, rather than reading as a complete account.
 uv run wa-login [--status|--quick|--reset]
 uv run wa-agent list|allow|deny|chats|unread|pending|drop|read
 uv run wa-agent tick                  # one cycle by hand
-uv run pytest                         # 510 tests
+uv run pytest                         # 531 tests
 uv run pytest -m "not browser"        # the fast subset
 ```
 
@@ -283,11 +283,13 @@ privilege-escalation finding.
 
 Verified against the live site, most recently on 2026-09-05:
 
-- **The message list is virtualised.** Reopening a chat can render one row
-  out of nineteen, so anything that reads a conversation must scroll first.
-  Skipping that made the daemon read the self-chat — where every approval and
-  `GROUPSUM` arrives — through a keyhole, and ignore commands that were plainly
-  there. Scrolling costs about 6s, so reads are cached per page.
+- **The message list is virtualised, at both ends.** Reopening a chat can
+  render one row out of nineteen, so reading a conversation means scrolling.
+  But rows scrolled away from stay in the DOM with empty text, so scrolling to
+  the top to load history silently drops the newest messages — which is where
+  every command arrives. Reads therefore start at the bottom and merge each
+  window as they scroll up. Scrolling costs about 6s, so reads are cached per
+  page.
 - **It gates on the User-Agent, not on headless.** Headless Chromium
   advertises `HeadlessChrome/...`, and WhatsApp answers with a
   "WhatsApp works with Google Chrome 100+" notice rather than the app. For

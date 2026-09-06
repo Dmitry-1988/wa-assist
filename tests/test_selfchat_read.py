@@ -6,6 +6,8 @@ outside that keyhole was silently never seen. `read_chat` had always scrolled;
 the self-chat had not. Found 2026-09-04 after the daemon appeared to ignore a
 request that was plainly there.
 
+Scrolling alone then lost the other end -- see test_selfchat_newest.py.
+
 No autouse stub of `selfchat.read` here: these test the real thing.
 """
 
@@ -27,8 +29,9 @@ class _Page:
 def scrolls(monkeypatch):
     calls = []
     monkeypatch.setattr(selfchat, "open_self_chat", lambda page: "self")
-    monkeypatch.setattr(selfchat, "load_more",
-                        lambda page, minimum: calls.append(minimum))
+    monkeypatch.setattr(selfchat, "_read_windows",
+                        lambda page, minimum: (calls.append(minimum)
+                                               or [_M(i) for i in range(19)]))
     monkeypatch.setattr(selfchat, "extract_messages",
                         lambda page: [_M(i) for i in range(19)])
     return calls
