@@ -8,19 +8,32 @@ run drafts a reply using your Gmail and Calendar, and posts it into **your own
 WhatsApp self-chat**. Nothing is delivered until you reply `OK #XXX` there.
 
 ```
-Ann: remind me when we drove to Max's wedding?
+Ann: what date did we drive up for Max's wedding? and did I ever pay you
+     back for the parking?
         │
         ▼  daemon captures the chat, queues it
    Claude drafts, read-only Gmail + Calendar, no way to reach WhatsApp
         │
         ▼  posted to YOUR self-chat
-   DRAFT #47Q → Ann
-   Wed 3 June. And yes, we parked at the discounted rate — 8 shekels.
-   OK #47Q | EDIT #47Q <changes> | NO #47Q     expires 21:26
+   🤖 DRAFT #47Q → Ann
+   Sources:
+     · Calendar "Max & Dana — wedding", Wed 3 June
+     · Gmail 5 Jun: parking receipt, 8 shekels, discounted rate
+
+   ── WILL SEND VERBATIM ──
+   Wed 3 June. And yes, the 8 shekels came through that Friday.
+   ────────────────────────
+
+   OK #47Q  |  EDIT #47Q <changes>  |  NO #47Q
+   expires 21:26
         │
         ▼  you type OK #47Q
    delivered
 ```
+
+Both halves of the question are answered and nothing else is. Where the answer
+came from is in `Sources`, which you see when you approve it — the message
+itself never says "I checked your calendar", because that is not how you text.
 
 ---
 
