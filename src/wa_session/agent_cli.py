@@ -43,7 +43,7 @@ QUIET = True
 
 def _with_page(fn, quiet: bool = True):
     config = load_config()
-    with persistent_context(config.profile_dir, headless=False, quiet=quiet) as context:
+    with persistent_context(config.profile_dir, quiet=quiet) as context:
         page = first_page(context)
         page.goto(WHATSAPP_URL, wait_until="domcontentloaded")
         if wait_for_state(page, PAGE_READY_TIMEOUT_S) is not PageState.LOGGED_IN:

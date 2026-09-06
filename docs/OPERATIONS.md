@@ -84,6 +84,12 @@ jq -c 'select(.actions|length>0) | {at, actions}' .wa-agent/daemon.log | tail -2
 `rejected_outbox`, `rejected_summary`, `stale_notice_failed`,
 `rotation_warning_failed`, `edit_ack_failed`.
 
+`propose_failed` naming a message id means a draft reached your self-chat but
+was never armed — `OK` on it does nothing, and it is not in `pending`. The
+queue item is kept and retried, so it resolves itself; the orphan text stays in
+the chat and is only clutter. If it repeats every tick, the send is being
+refused rather than lost: check `daemon.err.log`.
+
 `summary_post_failed` is the one to take seriously: it means a digest was
 generated and could not be delivered. The queue item and its watermarks are
 deliberately left untouched, so the next `GROUPSUM` retries it. Nothing is

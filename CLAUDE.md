@@ -87,8 +87,15 @@ The answer schema still **rejects** `chat`/`recipient`/`to`/`send`/`live`/`draft
   than transcribes and never mixes languages mid-sentence, quoting short Hebrew
   only where the exact wording carries the meaning. This is the DIGEST only —
   replies still go out in the language the other person wrote in.
-- **Every self-chat note goes through `tick.post_note`**, which READS THE
-  MESSAGE BACK before returning. Two separate failures make that necessary:
+- **Nothing is treated as posted until it has been read back.** Both
+  `tick.post_note` (notes and digests) and `agent._post_and_locate` (drafts)
+  POLL until the message appears, and both check the `SendResult` that
+  `selfchat.post` returns instead of raising. `propose` did neither: it read
+  ONCE, immediately, so a message still in flight looked like a failure. It
+  raised, the caller closed the browser, and the draft either landed with no
+  pending entry to arm it or was dropped with the context — seven paid runs
+  and seven orphan drafts on 2026-09-06. An unarmed draft is worse than none:
+  `OK #XXX` on one reaches no code path and reads as a dead daemon. Two separate failures make that necessary:
   `selfchat.post` returns a SendResult and does not raise on a post-click
   refusal; and even a genuine "sent" is not yet transmitted when the call
   returns, so `_post_phase` closing the browser immediately dropped the
@@ -128,7 +135,7 @@ uv run wa-agent list|allow|deny # allowlist (--mode reply|summarize)
 uv run wa-agent unread|chats|pending|drop|read
 uv run wa-agent propose|poll|send [--live]
 uv run wa-agent tick            # one unattended cycle (the daemon runs this)
-uv run pytest                   # 486 tests; -m "not browser" for the fast ones
+uv run pytest                   # 510 tests; -m "not browser" for the fast ones
 ```
 
 Self-chat commands: `OK #XXX`, `NO #XXX`, `EDIT #XXX: …`, `GROUPSUM`.
@@ -142,10 +149,22 @@ Self-chat commands: `OK #XXX`, `NO #XXX`, `EDIT #XXX: …`, `GROUPSUM`.
   ~6s, so a read is cached per page and invalidated by `post`; the delivery
   read-back passes `scroll=False` since it only wants the newest message.
 
-- **WhatsApp Web does not render headless.** Verified on both fresh and
-  logged-in profiles: empty document. Every browser step runs headed.
-- Windows are **minimised via CDP** (`quiet=True`), not headless and not moved
-  off-screen — macOS clamps `--window-position` back on screen.
+- **WhatsApp Web renders headless fine — it gates on the User-Agent.**
+  Headless Chromium says `HeadlessChrome/...` and WhatsApp answers with
+  "WhatsApp works with Google Chrome 100+" instead of the app. That page was
+  read as "does not render headless" and cost this project months of headed,
+  CDP-minimised windows. Send `session.CHROME_UA` and old and new headless
+  both work — verified 2026-09-06 on a live logged-in session: chat list,
+  virtualised message list, emoji as `<img>`, both recipient signals, typing
+  and click-to-send. The UA is passed headed too, so a login and a tick look
+  like the same browser.
+- `quiet=True` therefore means **headless**. `WA_HEADED=1` restores the old
+  headed-and-minimised path for the day Meta changes the sniff. Minimising was
+  never actually invisible: the window is created frontmost and minimised a
+  moment later, so every launch stole focus — at 120s and up to two launches a
+  tick, that reshuffled the user's Spaces ~30 times an hour.
+- macOS clamps `--window-position`, so an off-screen window snaps back; that
+  is why minimise, not move, was the old fallback.
 - **Enter sends**, so nothing here ever presses it — the send is a click.
   A body goes in as ONE `keyboard.insert_text(text)`, newlines included:
   `insert_text` dispatches no key events, so Enter cannot fire mid-body, and

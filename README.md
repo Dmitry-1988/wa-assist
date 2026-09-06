@@ -52,8 +52,7 @@ no longer unread, so nothing re-queues it. See `messages.py`.
 **Every draft is a paid Claude run.** A message arriving in an allowlisted chat
 costs an API call. So does each `GROUPSUM`.
 
-**macOS only.** It depends on launchd, `osascript`, and minimising Chromium
-through CDP.
+**macOS only.** It depends on launchd and `osascript`.
 
 ---
 
@@ -157,10 +156,10 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.example.wa-agent.pli
 launchctl print gui/$(id -u)/com.example.wa-agent | grep state
 ```
 
-It needs the Aqua GUI session — it drives a real browser window (minimised, not
-headless: WhatsApp Web does not render headless at all). launchd caches the
-plist at bootstrap, so after editing it you must `bootout` and `bootstrap`
-again.
+The daemon runs Chromium headless, so nothing appears on your screen. launchd
+caches the plist at bootstrap, so after editing it you must `bootout` and
+`bootstrap` again. `wa-login` stays headed — you have to see the QR to scan
+it — so linking still needs the Aqua GUI session.
 
 ---
 
@@ -198,7 +197,7 @@ that too, naming the group, rather than reading as a complete account.
 uv run wa-login [--status|--quick|--reset]
 uv run wa-agent list|allow|deny|chats|unread|pending|drop|read
 uv run wa-agent tick                  # one cycle by hand
-uv run pytest                         # 486 tests
+uv run pytest                         # 510 tests
 uv run pytest -m "not browser"        # the fast subset
 ```
 
@@ -211,6 +210,7 @@ uv run pytest -m "not browser"        # the fast subset
 | `WA_ROTATE_AFTER_HOURS` | `24` | session rotation policy |
 | `WA_ENFORCE_ROTATION` | off | stop the daemon once the session is over-age |
 | `WA_DAEMON_LABEL` | `com.example.wa-agent` | your launchd label, for messages |
+| `WA_HEADED` | off | force a real (minimised) window instead of headless |
 
 Files in `.wa-agent/`: `allowlist.json`, `context.json`, `style.json` (house
 style injected into every prompt), `digest_seen.json`, `rotation.json`,
@@ -288,10 +288,13 @@ Verified against the live site, most recently on 2026-09-05:
   Skipping that made the daemon read the self-chat — where every approval and
   `GROUPSUM` arrives — through a keyhole, and ignore commands that were plainly
   there. Scrolling costs about 6s, so reads are cached per page.
-- **It does not render under headless Chromium at all.** The page loads but
-  stays empty. Every browser step here runs headed for that reason, including
-  rotation's logout — a blank headless page made the unlink look successful
-  while revoking nothing.
+- **It gates on the User-Agent, not on headless.** Headless Chromium
+  advertises `HeadlessChrome/...`, and WhatsApp answers with a
+  "WhatsApp works with Google Chrome 100+" notice rather than the app. For
+  months that was read here as "it does not render headless", and every
+  browser step ran headed and was minimised through CDP. Sending an ordinary
+  Chrome UA (`session.CHROME_UA`) renders everything, headless included.
+  Set `WA_HEADED=1` if Meta ever changes the sniff.
 - Nothing useful exists at `DOMContentLoaded`; the app needs a few seconds.
   `wait_for_state` polls instead of reading the DOM immediately.
 - WhatsApp shows a "What's new" dialog after updates that swallows clicks.

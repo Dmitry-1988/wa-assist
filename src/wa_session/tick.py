@@ -248,8 +248,7 @@ def _drafting_phase(config: Config, result: dict) -> bool:
 
 def _post_phase(config: Config, result: dict) -> None:
     """Post finished drafts and digests without waiting for the next tick."""
-    with persistent_context(config.profile_dir, headless=False,
-                            quiet=True) as context:
+    with persistent_context(config.profile_dir, quiet=True) as context:
         page = first_page(context)
         page.goto(WHATSAPP_URL, wait_until="domcontentloaded")
         if wait_for_state(page, PAGE_READY_TIMEOUT_S) is PageState.LOGGED_IN:
@@ -266,7 +265,7 @@ def _browser_phase(config: Config, result: dict) -> dict:
 
     pending = pending_drafts(config)
 
-    with persistent_context(config.profile_dir, headless=False, quiet=True) as context:
+    with persistent_context(config.profile_dir, quiet=True) as context:
         page = first_page(context)
         page.goto(WHATSAPP_URL, wait_until="domcontentloaded")
         if wait_for_state(page, PAGE_READY_TIMEOUT_S) is not PageState.LOGGED_IN:
@@ -497,9 +496,12 @@ def post_note(page, text: str, settle_s: float = 12.0) -> str:
     * Even on a genuine "sent", the message is not necessarily transmitted when
       the call returns. `_post_phase` closes the browser as soon as posting is
       done, and a context torn down that quickly dropped the message on the
-      floor -- `summary_posted` in the log, nothing in the chat. Drafts never
-      hit this because `propose` reads its message back to find `marker_id`,
-      which both proves delivery and holds the page open.
+      floor -- `summary_posted` in the log, nothing in the chat.
+
+    Drafts were once said to be immune, because `propose` reads its message
+    back to find `marker_id`. That was wrong: it read ONCE, immediately, so it
+    proved nothing and held the page open for no time at all. `propose` now
+    polls the same way -- see `agent._post_and_locate`.
 
     So the note is read back until it appears. Returns its message id.
     """

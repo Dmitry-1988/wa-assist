@@ -79,8 +79,9 @@ def _rotate(config: Config) -> None:
     log("logging out via WhatsApp Web UI...")
     unlinked = False
     try:
-        # Headed: WhatsApp Web does not render under headless Chromium, and a
-        # blank page would make the unlink look successful when it did nothing.
+        # Headed on purpose, though it no longer has to be: this runs inside
+        # an interactive rotation where the user is about to scan a QR, and a
+        # visible window is what tells them the unlink really happened.
         with persistent_context(config.profile_dir, headless=False) as context:
             page = first_page(context)
             page.goto(WHATSAPP_URL, wait_until="domcontentloaded")
@@ -166,10 +167,11 @@ def probe_live_state(config: Config, lock_wait_s: float = 45.0) -> str:
     try:
         with profile_lock(agent_dir(config) / "profile.lock",
                           timeout_s=lock_wait_s):
-            # Headed but minimised: WhatsApp Web does not render headless, and
-            # a blank page would read as "not logged in" and be a lie of its own.
-            with persistent_context(config.profile_dir, headless=False,
-                                    quiet=True) as context:
+            # quiet=True, so this runs headless and never touches the screen.
+            # What it must not do is mistake a page it failed to render for a
+            # logged-out one -- that lie is the whole reason --status exists,
+            # so the UA that makes WhatsApp render is not optional here.
+            with persistent_context(config.profile_dir, quiet=True) as context:
                 page = first_page(context)
                 page.goto(WHATSAPP_URL, wait_until="domcontentloaded")
                 return wait_for_state(page, PAGE_READY_TIMEOUT_S).value
