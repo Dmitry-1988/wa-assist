@@ -24,12 +24,16 @@ draft: at limit=60 `read_after` returned 0.
 
 import pytest
 
+import wa_session.messages as messages
 import wa_session.selfchat as selfchat
 
 
 class _M:
     def __init__(self, i):
         self.text, self.msg_id = f"m{i}", f"id{i}"
+
+    def as_dict(self):
+        return {"text": self.text, "msg_id": self.msg_id}
 
     def __repr__(self):
         return self.msg_id
@@ -67,13 +71,23 @@ class VirtualisedPage:
     def wait_for_timeout(self, ms):
         self.waits += 1
 
+    def locator(self, selector):
+        class _None:
+            def count(self):
+                return 0
+
+            @property
+            def first(self):
+                return self
+        return _None()
+
 
 @pytest.fixture
 def wired(monkeypatch):
     """Drive the real `_read_windows` against the fake virtualised list."""
     def _wire(page):
         monkeypatch.setattr(selfchat, "open_self_chat", lambda p: "self")
-        monkeypatch.setattr(selfchat, "extract_messages",
+        monkeypatch.setattr(messages, "extract_messages",
                             lambda p: list(p.rendered()))
 
         def fake_bottom(p):
@@ -83,8 +97,8 @@ def wired(monkeypatch):
             p.scroll_up()
             return p.position()         # stands in for scrollTop
 
-        monkeypatch.setattr(selfchat, "_scroll_to_bottom", fake_bottom)
-        monkeypatch.setattr(selfchat, "_scroll_up_one", fake_scroll)
+        monkeypatch.setattr(messages, "scroll_to_bottom", fake_bottom)
+        monkeypatch.setattr(messages, "scroll_up_one", fake_scroll)
     return _wire
 
 
@@ -152,7 +166,7 @@ def test_the_page_is_left_at_the_bottom(wired):
 def test_merge_stitches_on_the_overlap():
     older = [_M(0), _M(1), _M(2), _M(3)]
     newer = [_M(2), _M(3), _M(4)]
-    assert [m.msg_id for m in selfchat._merge_older(older, newer)] == [
+    assert [m.msg_id for m in messages.merge_older(older, newer)] == [
         "id0", "id1", "id2", "id3", "id4"]
 
 
@@ -160,18 +174,18 @@ def test_merge_without_an_overlap_keeps_everything():
     """A jump too far must not silently drop the messages in between."""
     older = [_M(0), _M(1)]
     newer = [_M(8), _M(9)]
-    assert [m.msg_id for m in selfchat._merge_older(older, newer)] == [
+    assert [m.msg_id for m in messages.merge_older(older, newer)] == [
         "id0", "id1", "id8", "id9"]
 
 
 def test_merge_onto_nothing_is_the_window_itself():
-    merged = selfchat._merge_older([_M(1), _M(2)], [])
+    merged = messages.merge_older([_M(1), _M(2)], [])
     assert [m.msg_id for m in merged] == ["id1", "id2"]
 
 
 def test_merge_never_duplicates_when_windows_repeat():
     same = [_M(1), _M(2)]
-    merged = selfchat._merge_older(same, same)
+    merged = messages.merge_older(same, same)
     assert [m.msg_id for m in merged] == ["id1", "id2"]
 
 
@@ -235,7 +249,7 @@ def test_patience_is_bounded(wired):
     wired(page)
     got = selfchat.read(page, limit=500, refresh=True)
     assert len(got) == 12
-    assert page.waits <= selfchat.STALL_STEPS + 1
+    assert page.waits <= messages.STALL_STEPS + 1
 
 
 class SlowTopPage(VirtualisedPage):
@@ -290,3 +304,38 @@ def test_a_pinned_scroll_position_still_terminates(wired):
     wired(page)
     got = selfchat.read(page, limit=500, refresh=True)
     assert len(got) == 25
+
+
+# --- and the group path, which is where this actually bit ------------------
+
+def test_capture_chat_keeps_the_newest_at_depth(wired):
+    """GROUPSUM's watermark is a RECENT message. `capture_chat` used
+    `load_more`, so a deep capture scrolled to the top, unrendered the bottom,
+    and dropped the mark -- every group then reported a gap and the whole
+    history was re-summarised as if new.
+
+    Live on 2026-09-06: capture_chat(expected_unread=10) kept the newest,
+    capture_chat(expected_unread=60) lost it. Raising SUMMARY_CAPTURE_DEPTH
+    from 15 to 60 is what exposed it; at 15 `load_more` never scrolled at all,
+    which is the only reason it had ever looked correct.
+    """
+    page = VirtualisedPage(total=45, window=24)
+    wired(page)
+    cap = messages.capture_chat(page, "a group", expected_unread=60)
+    assert cap.messages[-1].msg_id == "id44", "the watermark's end was lost"
+
+
+def test_a_watermark_near_the_end_is_still_findable(wired):
+    """The property GROUPSUM actually depends on: the last summarised message
+    must be inside the captured window, or `window()` reports a gap and
+    everything captured is treated as new."""
+    from wa_session.watermarks import window as watermark_window
+
+    page = VirtualisedPage(total=45, window=24)
+    wired(page)
+    cap = messages.capture_chat(page, "a group", expected_unread=60)
+    captured = [m.as_dict() for m in cap.messages]
+
+    seen = watermark_window(captured, "id42", cap=120)
+    assert seen.gap is False, f"spurious gap: {seen.reason}"
+    assert [m["msg_id"] for m in seen.messages] == ["id43", "id44"]

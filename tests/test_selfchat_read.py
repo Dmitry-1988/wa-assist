@@ -29,7 +29,7 @@ class _Page:
 def scrolls(monkeypatch):
     calls = []
     monkeypatch.setattr(selfchat, "open_self_chat", lambda page: "self")
-    monkeypatch.setattr(selfchat, "_read_windows",
+    monkeypatch.setattr(selfchat, "read_window",
                         lambda page, minimum: (calls.append(minimum)
                                                or [_M(i) for i in range(19)]))
     monkeypatch.setattr(selfchat, "extract_messages",
