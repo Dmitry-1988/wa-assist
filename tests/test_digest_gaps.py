@@ -21,7 +21,7 @@ from wa_session.config import Config
 from wa_session.pipeline import QueueItem, read_queue, write_queue_item
 from wa_session.tick import (SUMMARY_CAPTURE_DEPTH, SUMMARY_MAX_MESSAGES,
                              _collect_group_messages, _gap_notice)
-from wa_session.watermarks import ChatState, advance, read_state
+from wa_session.watermarks import ChatState, advance, read_reported
 
 
 def msgs(*ids):
@@ -166,7 +166,7 @@ def test_a_gap_does_not_stop_the_watermark_advancing(config, monkeypatch):
     monkeypatch.setattr("wa_session.tick.post_note", lambda page_, text, **kw: "id")
 
     _post_ready_summaries(FakePage(), config, {"actions": []})
-    assert read_state(config)["G1"].seen == {"m1", "m2"}
+    assert read_reported(config)["G1"].seen == {"m1", "m2"}
 
 
 def test_the_summariser_is_never_handed_the_gap(config):
@@ -233,7 +233,7 @@ def test_context_is_not_recorded_as_reported(config, monkeypatch):
                      DraftSubmission(queue_id="sum-ctx", body="d", sources=[]))
     monkeypatch.setattr("wa_session.tick.post_note", lambda p, text, **kw: "id")
     _post_ready_summaries(FakePage(), config, {"actions": []})
-    assert read_state(config)["G1"].seen == {"new"}
+    assert read_reported(config)["G1"].seen == {"new"}
 
 
 def test_the_summariser_is_told_to_read_context_not_report_it():

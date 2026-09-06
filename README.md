@@ -243,7 +243,7 @@ uv run wa-login [--status|--quick|--reset]
 uv run wa-agent list|allow|deny|chats|unread|pending|drop|read
 uv run wa-agent digest-catchup       # treat everything now as already digested
 uv run wa-agent tick                  # one cycle by hand
-uv run pytest                         # 539 tests
+uv run pytest                         # 566 tests
 uv run pytest -m "not browser"        # the fast subset
 ```
 

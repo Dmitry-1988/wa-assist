@@ -283,7 +283,7 @@ def test_a_failed_digest_keeps_its_queue_item_and_watermarks(config, monkeypatch
     from wa_session.pipeline import QueueItem, write_queue_item, write_submission, \
         DraftSubmission, read_queue
     from wa_session.tick import _post_ready_summaries
-    from wa_session.watermarks import read_state
+    from wa_session.watermarks import read_reported
 
     item = QueueItem(queue_id="sum-1", chat="__summary__",
                      messages=[{"chat": "G", "messages": [{"msg_id": "m1"}]}])
@@ -296,7 +296,7 @@ def test_a_failed_digest_keeps_its_queue_item_and_watermarks(config, monkeypatch
     result = {"actions": []}
     assert _post_ready_summaries(object(), config, result) == 0
     assert [i.queue_id for i in read_queue(config)] == ["sum-1"], "item must survive"
-    assert read_state(config) == {}, "watermarks must not advance"
+    assert read_reported(config) == {}, "watermarks must not advance"
     assert any("summary_post_failed" in a for a in result["actions"])
 
 

@@ -55,7 +55,7 @@ class ChatState:
     floor: str = ""
 
 
-def read_state(config: Config) -> dict[str, ChatState]:
+def read_reported(config: Config) -> dict[str, ChatState]:
     """Chat name -> ChatState. An unreadable file means "nothing seen"."""
     try:
         data = json.loads(watermarks_path(config).read_text(encoding="utf-8"))
@@ -78,7 +78,7 @@ def read_state(config: Config) -> dict[str, ChatState]:
     return out
 
 
-def write_state(config: Config, state: dict[str, ChatState]) -> None:
+def write_reported(config: Config, state: dict[str, ChatState]) -> None:
     path = watermarks_path(config)
     payload = {
         name: {"seen": sorted(cs.seen)[-MAX_SEEN:],
@@ -182,7 +182,7 @@ def advance(config: Config, chats: list[dict]) -> dict[str, ChatState]:
     Only `messages` counts. `context` was handed over to be read, not told, so
     marking it reported would hide it from a digest that genuinely needs it.
     """
-    state = read_state(config)
+    state = read_reported(config)
     for block in chats:
         name = block.get("chat")
         if not name:
@@ -196,5 +196,5 @@ def advance(config: Config, chats: list[dict]) -> dict[str, ChatState]:
         current.floor = ""
         if len(current.seen) > MAX_SEEN:
             current.seen = set(sorted(current.seen)[-MAX_SEEN:])
-    write_state(config, state)
+    write_reported(config, state)
     return state

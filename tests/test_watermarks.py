@@ -19,7 +19,7 @@ import pytest
 
 from wa_session.config import Config
 from wa_session.watermarks import (CONTEXT_MESSAGES, ChatState, advance,
-                                   read_state, unseen, write_state)
+                                   read_reported, unseen, write_reported)
 
 
 @pytest.fixture
@@ -35,7 +35,7 @@ def msgs(*ids):
 
 
 def seen_of(config, chat):
-    return read_state(config).get(chat, ChatState()).seen
+    return read_reported(config).get(chat, ChatState()).seen
 
 
 # --- what is new ----------------------------------------------------------
@@ -127,7 +127,7 @@ def test_the_record_only_ever_grows(config):
 def test_a_truncated_capture_does_not_re_open_old_messages(config):
     advance(config, [{"chat": "A", "messages": msgs("a1", "a2", "a3")}])
     advance(config, [{"chat": "A", "messages": msgs("a1")}])
-    got = unseen(msgs("a1", "a2", "a3", "a4"), read_state(config)["A"])
+    got = unseen(msgs("a1", "a2", "a3", "a4"), read_reported(config)["A"])
     assert [m["msg_id"] for m in got.messages] == ["a4"]
 
 
@@ -140,7 +140,7 @@ def test_other_chats_are_untouched(config):
 def test_an_unreadable_record_means_nothing_seen(config):
     from wa_session.watermarks import watermarks_path
     watermarks_path(config).write_text("{not json", encoding="utf-8")
-    assert read_state(config) == {}
+    assert read_reported(config) == {}
 
 
 def test_the_record_is_capped(config):
@@ -162,7 +162,7 @@ def test_a_legacy_mark_is_read_as_a_floor(config):
     from wa_session.watermarks import watermarks_path
     watermarks_path(config).write_text(
         '{"chats": {"G": "ID7"}}', encoding="utf-8")
-    state = read_state(config)["G"]
+    state = read_reported(config)["G"]
     assert state.floor == "ID7" and state.seen == {"ID7"}
 
 
@@ -178,12 +178,12 @@ def test_a_legacy_floor_is_dropped_once_real_ids_are_recorded(config):
     from wa_session.watermarks import watermarks_path
     watermarks_path(config).write_text('{"chats": {"G": "ID7"}}', encoding="utf-8")
     advance(config, [{"chat": "G", "messages": msgs("ID8")}])
-    assert read_state(config)["G"].floor == ""
+    assert read_reported(config)["G"].floor == ""
 
 
 def test_write_then_read_round_trips(config):
-    write_state(config, {"G": ChatState(seen={"a", "b"})})
-    assert read_state(config)["G"].seen == {"a", "b"}
+    write_reported(config, {"G": ChatState(seen={"a", "b"})})
+    assert read_reported(config)["G"].seen == {"a", "b"}
 
 
 # --- the exact complaint, as a test ----------------------------------------
@@ -193,7 +193,7 @@ def test_a_quiet_group_stays_out_of_the_digest(config):
     visible message has been reported must produce nothing at all."""
     captured = msgs("m1", "m2", "m3")
     advance(config, [{"chat": "G", "messages": captured}])
-    assert unseen(captured, read_state(config)["G"]).messages == []
+    assert unseen(captured, read_reported(config)["G"]).messages == []
 
 
 def test_history_the_user_read_days_ago_is_not_news(config):
@@ -202,7 +202,7 @@ def test_history_the_user_read_days_ago_is_not_news(config):
     finds down there."""
     advance(config, [{"chat": "G", "messages": msgs("m5", "m6")}])
     deeper = msgs("m1", "m2", "m3", "m4", "m5", "m6", "m7")
-    got = unseen(deeper, read_state(config)["G"])
+    got = unseen(deeper, read_reported(config)["G"])
     assert [m["msg_id"] for m in got.messages] == ["m7"]
 
 
@@ -210,14 +210,14 @@ def test_genuinely_new_messages_are_never_swallowed(config):
     """"it not queried 2 messages from [a group]". The other half of the same
     rule: what IS new must survive all of the filtering above."""
     advance(config, [{"chat": "G", "messages": msgs("m1", "m2", "m3")}])
-    got = unseen(msgs("m1", "m2", "m3", "m4", "m5"), read_state(config)["G"])
+    got = unseen(msgs("m1", "m2", "m3", "m4", "m5"), read_reported(config)["G"])
     assert [m["msg_id"] for m in got.messages] == ["m4", "m5"]
 
 
 def test_a_repeated_digest_of_the_same_capture_says_nothing_the_second_time(config):
     """Two GROUPSUMs in a row with no new messages in between."""
     captured = msgs("m1", "m2")
-    first = unseen(captured, read_state(config).get("G"))
+    first = unseen(captured, read_reported(config).get("G"))
     advance(config, [{"chat": "G", "messages": first.messages}])
-    second = unseen(captured, read_state(config)["G"])
+    second = unseen(captured, read_reported(config)["G"])
     assert first.messages and second.messages == []
