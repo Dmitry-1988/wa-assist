@@ -122,18 +122,18 @@ def test_the_digest_must_not_title_itself():
 # --- and the code strips one anyway ----------------------------------------
 
 @pytest.mark.parametrize("body", [
-    "📋 GROUP DIGEST\n\nאקווה\n· x",
-    "GROUP DIGEST 06:31\n\nאקווה\n· x",
-    "📋 GROUP DIGEST 06:31\nאקווה\n· x",
+    "📋 GROUP DIGEST\n\nקבוצה\n· x",
+    "GROUP DIGEST 06:31\n\nקבוצה\n· x",
+    "📋 GROUP DIGEST 06:31\nקבוצה\n· x",
 ])
 def test_a_self_added_title_is_removed(body):
     from wa_session.tick import _strip_own_title
-    assert _strip_own_title(body).startswith("אקווה")
+    assert _strip_own_title(body).startswith("קבוצה")
 
 
 def test_a_body_without_a_title_is_untouched():
     from wa_session.tick import _strip_own_title
-    body = "אקווה פמילי\n· Lighting at the back is broken."
+    body = "קבוצה לדוגמה\n· Lighting at the back is broken."
     assert _strip_own_title(body) == body
 
 

@@ -87,6 +87,10 @@ def main(argv: list[str] | None = None) -> int:
     p_drop.add_argument("--draft-id", required=True)
     p_drop.add_argument("--reason", default="superseded")
 
+    sub.add_parser("digest-catchup",
+                   help="mark everything now in the summarize groups as already "
+                        "digested, so only new messages are reported from here")
+
     p_read = sub.add_parser("read", help="open ONE chat and read it (sends read receipts)")
     p_read.add_argument("--chat", required=True)
     p_read.add_argument("--yes", action="store_true",
@@ -154,6 +158,37 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "drop":
         emit(retire_draft(config, args.draft_id, args.reason))
         return 0
+
+    if args.cmd == "digest-catchup":
+        # Recovery. `advance` used to assign the last captured id, so a capture
+        # that had lost its tail moved a chat's mark BACKWARDS and every digest
+        # after it re-reported the same history. The record cannot be repaired
+        # from the ids it kept -- they are the rewound ones -- so this draws a
+        # line: everything visible now counts as already reported.
+        from .allowlist import Allowlist
+        from .tick import SUMMARY_CAPTURE_DEPTH
+        from .watermarks import advance
+
+        def _catchup(page, cfg):
+            allow = Allowlist(allowlist_path(cfg))
+            blocks, report = [], []
+            for entry in allow.summarize_chats():
+                captured = read_chat(page, entry.name,
+                                     depth=SUMMARY_CAPTURE_DEPTH)
+                if not captured.get("ok"):
+                    report.append({"chat": entry.name,
+                                   "error": captured.get("reason")})
+                    continue
+                blocks.append({"chat": entry.name,
+                               "messages": captured["messages"]})
+                report.append({"chat": entry.name,
+                               "marked_seen": len(captured["messages"])})
+            advance(cfg, blocks)
+            emit({"ok": True, "chats": report,
+                  "note": "only messages arriving after this will be digested"})
+            return 0
+
+        return _with_page_q(_catchup)
 
     if args.cmd == "read":
         if not args.yes:

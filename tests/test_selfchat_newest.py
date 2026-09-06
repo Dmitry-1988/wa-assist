@@ -329,13 +329,13 @@ def test_a_watermark_near_the_end_is_still_findable(wired):
     """The property GROUPSUM actually depends on: the last summarised message
     must be inside the captured window, or `window()` reports a gap and
     everything captured is treated as new."""
-    from wa_session.watermarks import window as watermark_window
+    from wa_session.watermarks import ChatState, unseen
 
     page = VirtualisedPage(total=45, window=24)
     wired(page)
     cap = messages.capture_chat(page, "a group", expected_unread=60)
     captured = [m.as_dict() for m in cap.messages]
 
-    seen = watermark_window(captured, "id42", cap=120)
-    assert seen.gap is False, f"spurious gap: {seen.reason}"
-    assert [m["msg_id"] for m in seen.messages] == ["id43", "id44"]
+    fresh = unseen(captured, ChatState(seen={"id42"}), cap=120)
+    assert fresh.gap is False, f"spurious gap: {fresh.reason}"
+    assert [m["msg_id"] for m in fresh.messages] == ["id43", "id44"]

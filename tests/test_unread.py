@@ -97,7 +97,7 @@ def test_custom_summarizer_is_used():
         # textContent has no newline, so the name runs straight into the badge
         # text. An unbounded pattern used to swallow the whole string.
         ("12 unread messagesשכנים בבניין", "שכנים בבניין"),
-        ("5 unread messageצהרון שונית", "צהרון שונית"),
+        ("5 unread messageמועדון לדוגמה", "מועדון לדוגמה"),
         ("1 unread message Bob", "Bob"),
         ("3 unread messagesПодруга", "Подруга"),
         ("no badge here", "no badge here"),

@@ -108,16 +108,29 @@ The answer schema still **rejects** `chat`/`recipient`/`to`/`send`/`live`/`draft
   `test_readback_browser.py`, which renders emoji as `<img>` in a real DOM: the
   fakes elsewhere echo back what was posted, which is exactly what WhatsApp
   does not do.
-- **A digest never repeats itself.** `watermarks.py` keeps the last summarised
-  `msg_id` per group in `.wa-agent/digest_seen.json`; GROUPSUM summarises only
-  what arrived after it, and posts "nothing new" rather than restating. The
-  mark advances **only after the digest posts** — advancing at capture would
-  have lost everything covered by the five posts that silently failed.
+- **A message reported once is never reported again.** `digest_seen.json` holds
+  a SET of reported `msg_id`s per group, not a single watermark, and it only
+  ever grows. One mark was not enough: `advance` assigned the last captured id,
+  so a capture that had lost its tail moved the mark BACKWARDS and every later
+  digest re-reported everything after it — quiet groups appearing over and over
+  with nothing new to say. Ids are added **only after the digest posts**.
+- **New means "after the last reported message in view", not "not yet
+  reported".** A capture reaching further back than the previous one surfaces
+  messages older than anything ever reported; those are history the user
+  scrolled past days ago, not news. `unseen` anchors on the LAST reported
+  message in the captured window.
+- **`context` is read, never reported.** `unseen` returns up to
+  `CONTEXT_MESSAGES` already-reported messages before the first new one,
+  because a reply is nonsense without what it answers. The summariser is told
+  to use them and say nothing about them, and `advance` does not mark them
+  reported — that would hide them from a digest that genuinely needs them.
+- `wa-agent digest-catchup` marks everything currently visible as reported. It
+  exists because a rewound record cannot be repaired from the ids it kept.
 - **A digest may be incomplete; it may never be incomplete in silence.**
-  `watermarks.window` returns a `gap` flag, and the daemon states it in the
+  `watermarks.unseen` returns a `gap` flag, and the daemon states it in the
   note (`⚠️ INCOMPLETE`) and the log (`groupsum_window_gap`). Two ways it used
   to lose messages without a word: a 15-row capture that a busy group outran,
-  so the mark fell outside the window and `since` called the whole window new;
+  so the mark fell outside the window and the whole window was called new;
   and `fresh[-40:]`, which dropped the oldest of a backlog and then advanced
   the mark **past** them, so no later digest could pick them up either. Capture
   is now `SUMMARY_CAPTURE_DEPTH` (60) and the cap is `SUMMARY_MAX_MESSAGES`
@@ -132,10 +145,10 @@ The answer schema still **rejects** `chat`/`recipient`/`to`/`send`/`live`/`draft
 uv run wa-login                 # QR scan; rotates if >24h old
 uv run wa-login --status        # checks WhatsApp itself (--quick = record only)
 uv run wa-agent list|allow|deny # allowlist (--mode reply|summarize)
-uv run wa-agent unread|chats|pending|drop|read
+uv run wa-agent unread|chats|pending|drop|read|digest-catchup
 uv run wa-agent propose|poll|send [--live]
 uv run wa-agent tick            # one unattended cycle (the daemon runs this)
-uv run pytest                   # 534 tests; -m "not browser" for the fast ones
+uv run pytest                   # 539 tests; -m "not browser" for the fast ones
 ```
 
 Self-chat commands: `OK #XXX`, `NO #XXX`, `EDIT #XXX: …`, `GROUPSUM`.

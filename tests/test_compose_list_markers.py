@@ -63,13 +63,13 @@ def test_the_replacement_is_idempotent():
 
 
 def test_hebrew_lines_are_untouched():
-    text = "צהרון א/ב\n· כבר בסדר"
+    text = "מועדון א/ב\n· כבר בסדר"
     assert clean(text) == text
 
 
 def test_the_exact_failing_digest_shape_is_fixed():
     """The real body that stalled: an RTL heading followed by '- ' bullets."""
-    body = ("צהרון א/ב\n"
+    body = ("מועדון א/ב\n"
             "- Tomorrow is the final adjustment day.\n"
             "- Clubs only start 6/9.")
     assert "\n- " not in clean(body)

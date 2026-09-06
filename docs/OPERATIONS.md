@@ -106,7 +106,7 @@ Everything lives in `.wa-agent/`, mode `0700`, gitignored.
 | `allowlist.json` | which chats are watched, and in which mode | no — you would lose your config |
 | `context.json` | the Google account and calendars the drafter may read | no |
 | `style.json` | house style injected into every prompt | yes, style reverts to default |
-| `digest_seen.json` | last summarised message per group | yes, but the next digest repeats itself |
+| `digest_seen.json` | every message id already reported, per group | yes, but the next digest repeats everything |
 | `journal.jsonl` | append-only record of every draft, command, send | **no** — this is what stops a double send |
 | `rotation.json` | which expiry warnings have been given | yes, warnings may repeat |
 | `inbox.json` | last tick's view of what is waiting | yes |
@@ -185,6 +185,28 @@ uv run wa-agent --visible tick
 
 These are current behaviour, not bugs with a fix pending. They are listed so a
 surprise is a recognised one.
+
+### A digest repeating things you have already read
+
+The record is a set of reported message ids per group, and it only ever grows,
+so this should not happen. It did, from a single watermark that `advance`
+assigned rather than advanced: a capture that had lost its tail wrote an OLD
+id back as "the last thing reported", and every digest after it re-opened
+everything that followed. Symptoms were quiet groups appearing in digest after
+digest, and content the user had already read three times.
+
+If a record is ever rewound again, it cannot be repaired from the ids it kept
+— they are the wrong ones. Draw a line instead:
+
+```bash
+uv run wa-agent digest-catchup
+```
+
+That marks everything currently visible in the summarize groups as already
+reported, so only messages arriving afterwards are digested. It opens those
+chats, but they are already read, so it costs no new read receipts. Anything
+recent that was genuinely never reported is given up in exchange — read it in
+WhatsApp directly.
 
 ### A gap on every group at once is a bug, not a busy group
 

@@ -5,7 +5,7 @@ import pytest
 from wa_session.config import Config
 from wa_session.pipeline import read_queue
 from wa_session.tick import _collect_group_messages
-from wa_session.watermarks import advance, read_watermarks
+from wa_session.watermarks import advance, read_state
 
 
 @pytest.fixture
@@ -97,7 +97,7 @@ def test_marks_are_not_advanced_at_capture_time(config):
     """They advance only when a digest actually posts -- five posts failed
     silently on 2026-09-01, and advancing here would have lost those messages."""
     _collect_group_messages(FakePage(), config, {"actions": []})
-    assert read_watermarks(config) == {}
+    assert read_state(config) == {}
 
 
 def test_the_quiet_note_lists_which_groups_it_actually_checked(config):
