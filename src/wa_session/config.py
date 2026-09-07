@@ -11,10 +11,62 @@ WHATSAPP_URL = "https://web.whatsapp.com"
 
 DEFAULT_PROFILE_DIRNAME = ".wa-profile"
 DEFAULT_STATE_DIRNAME = ".wa-state"
-DEFAULT_ROTATE_AFTER_HOURS = 24.0
+# 14 days. This was 24h, which was never WhatsApp's number -- WhatsApp expires
+# a linked device on INACTIVITY (about 14 days of the phone being offline), not
+# on a fixed lifetime, so a session left alone keeps working indefinitely.
+#
+# 24h was a defence-in-depth guess made while the drafter could still reach the
+# filesystem: a prompt-injected run could write into src/wa_session/, which the
+# daemon imports and executes, and from there copy the profile out. That path
+# is closed -- the drafter has no filesystem and no shell at all -- and what
+# rotation still buys is bounding the useful life of a copy taken by someone
+# with brief access to an unlocked machine. Daily QR scans were a heavy price
+# for that alone, and an ignored policy protects nothing: the warnings were
+# simply becoming noise.
+DEFAULT_ROTATE_AFTER_HOURS = 336.0
 
 # The profile is a live credential; keep it owner-only.
 PRIVATE_DIR_MODE = 0o700
+
+# Directories whose whole point is to copy their contents to someone else's
+# computer. A WhatsApp profile inside one is a live credential being uploaded,
+# continuously, and nothing about the file mode or FileVault stops it.
+SYNCED_ROOTS = (
+    "Library/Mobile Documents",      # iCloud Drive
+    "Library/CloudStorage",          # Google Drive, OneDrive, Dropbox, Box
+    "Dropbox",
+    "OneDrive",
+    "Google Drive",
+    "My Drive",
+    "Yandex.Disk",
+    "pCloud Drive",
+)
+
+
+class SyncedProfile(Exception):
+    """The profile directory is inside a cloud-sync folder."""
+
+
+def assert_not_synced(path: Path) -> None:
+    """Refuse a profile directory that a sync client would upload.
+
+    There is no legitimate reason to keep this in iCloud or Dropbox, and the
+    failure is silent: everything works, and a copy of your WhatsApp session
+    sits on someone else's servers. Rotation does not help -- the sync client
+    uploads each new one too.
+    """
+    resolved = path.expanduser().resolve()
+    parts = resolved.parts
+    for root in SYNCED_ROOTS:
+        needle = tuple(Path(root).parts)
+        if any(parts[i:i + len(needle)] == needle
+               for i in range(len(parts) - len(needle) + 1)):
+            raise SyncedProfile(
+                f"{resolved} is inside {root!r}, which syncs to the cloud. "
+                "The WhatsApp profile is a live credential and must not leave "
+                "this machine. Move the checkout, or set WA_PROFILE_DIR to a "
+                "path outside any sync folder."
+            )
 
 
 @dataclass(frozen=True)
@@ -82,6 +134,9 @@ def load_config(env: Mapping[str, str] | None = None) -> Config:
 
 def ensure_private_dir(path: Path) -> Path:
     """Create `path` (and parents) owner-only, tightening it if it already exists."""
+    # Checked here because every browser launch goes through it, login included
+    # -- there is no path that creates a profile without passing this point.
+    assert_not_synced(path)
     path.mkdir(parents=True, exist_ok=True, mode=PRIVATE_DIR_MODE)
     # mkdir's mode is ignored when the directory already exists, and umask can
     # loosen it on creation, so set it explicitly either way.

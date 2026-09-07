@@ -119,6 +119,19 @@ Everything lives in `.wa-agent/`, mode `0700`, gitignored.
 `.wa-profile/` is separate and is a **live WhatsApp credential**. Treat it like
 an SSH key.
 
+It must not sit in a synced folder. iCloud, Dropbox, OneDrive, Google Drive and
+the `~/Library/CloudStorage` mounts are refused at startup — sync uploads a
+live credential continuously, and defeats the file mode, FileVault and rotation
+all at once. If you keep the checkout in one, set `WA_PROFILE_DIR` elsewhere.
+
+Time Machine is worth checking too, since it is not refused, only worth
+avoiding:
+
+```bash
+tmutil isexcluded .wa-profile        # [Included] means it gets backed up
+sudo tmutil addexclusion .wa-profile
+```
+
 ### Housekeeping
 
 Nothing prunes `draft_*.json`, `run-*.lock` or `daemon.log` today, so they grow
@@ -252,11 +265,17 @@ message; that makes the chat unread again and it queues normally.
 
 ### The daemon cannot rotate its own session
 
-Linking needs a QR scanned from the phone. It warns in the self-chat at 6h, 2h
-and 30m of remaining life, then falls back to a macOS notification once the
-self-chat itself is gone with the session. The 24h clock is this project's
+Linking needs a QR scanned from the phone. It warns in the self-chat at 24h, 6h
+and 2h of remaining life, then falls back to a macOS notification once the
+self-chat itself is gone with the session. The 14-day clock is this project's
 policy, not WhatsApp's: past the deadline the daemon keeps working and only
 warns, unless `WA_ENFORCE_ROTATION=1`.
+
+It was 24h until 2026-09-07, set while a prompt-injected drafting run could
+still write into the package the daemon executes. With that closed, rotation
+bounds a profile copy taken from an unlocked machine and little else — and a
+policy that demands a QR scan every morning gets ignored, which protects
+nothing.
 
 Note that a plain `wa-login` **before** the deadline is a no-op — it finds a
 valid session and prints "within policy". Only `--reset` (or a login after

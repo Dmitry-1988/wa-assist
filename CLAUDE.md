@@ -151,13 +151,13 @@ The answer schema still **rejects** `chat`/`recipient`/`to`/`send`/`live`/`draft
 ## Commands
 
 ```
-uv run wa-login                 # QR scan; rotates if >24h old
+uv run wa-login                 # QR scan; rotates if past the 14-day policy
 uv run wa-login --status        # checks WhatsApp itself (--quick = record only)
 uv run wa-agent list|allow|deny # allowlist (--mode reply|summarize)
 uv run wa-agent unread|chats|pending|drop|read|digest-catchup
 uv run wa-agent propose|poll|send [--live]
 uv run wa-agent tick            # one unattended cycle (the daemon runs this)
-uv run pytest                   # 573 tests; -m "not browser" for the fast ones
+uv run pytest                   # 593 tests; -m "not browser" for the fast ones
 ```
 
 Self-chat commands: `OK #XXX`, `NO #XXX`, `EDIT #XXX: …`, `GROUPSUM`.
@@ -261,17 +261,30 @@ only `daemon.log` and the desktop notice catch it otherwise.
 
 It cannot rotate its own session — linking needs a QR scanned from the phone —
 so it gives notice instead, while it still has a channel to give it through:
-the self-chat warns at 6h, 2h and 30m of remaining life (`rotation.py`, once
+the self-chat warns at 24h, 6h and 2h of remaining life (`rotation.py`, once
 each, keyed to `linked_at` so a relink resets them). Once the session is
 actually gone the self-chat is gone with it, so the only remaining fallback is
 a throttled macOS notification.
 
-The 24h clock is **this project's policy, not WhatsApp's** — a WhatsApp Web
-session outlives it comfortably. The daemon therefore keeps working past the
-deadline and only warns; set `WA_ENFORCE_ROTATION=1` to make it stop instead.
+The 14-day clock is **this project's policy, not WhatsApp's** — WhatsApp
+expires a linked device on INACTIVITY (~14 days of the phone being offline),
+not on a fixed lifetime. The daemon keeps working past the deadline and only
+warns; set `WA_ENFORCE_ROTATION=1` to make it stop instead.
+
+It was 24h while the drafter could still reach the filesystem — a prompt
+injection could `Write` into `src/wa_session/` and copy the profile out. That
+path is closed, so what rotation still buys is bounding a copy taken by
+someone with brief access to an unlocked machine. Daily QR scans were not
+proportionate to that, and the warnings had become noise.
+
+`config.assert_not_synced` refuses a profile inside iCloud, Dropbox, OneDrive,
+Google Drive or `~/Library/CloudStorage`. Sync defeats the file mode,
+FileVault AND rotation at once, and it fails silently — everything works while
+a copy of the session sits on someone else's servers. Checked in
+`ensure_private_dir`, which every browser launch passes through.
 
 **A plain `wa-login` before the deadline does not reset the clock** — it finds a
 valid session, prints "within policy" and never offers a QR. Only `--reset` (or
-a login *after* expiry) unlinks, wipes and restarts the 24h. Rotation warnings
+a login *after* expiry) unlinks, wipes and restarts the clock. Rotation warnings
 therefore name `wa-login --reset`; a bare `wa-login` would be a no-op at exactly
 the moment they are sent.

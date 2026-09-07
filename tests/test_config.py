@@ -47,7 +47,7 @@ def test_invalid_rotation_hours_rejected(bad):
 
 
 def test_blank_rotation_hours_falls_back_to_default():
-    assert load_config(env={"WA_ROTATE_AFTER_HOURS": "  "}).rotate_after_hours == 24.0
+    assert load_config(env={"WA_ROTATE_AFTER_HOURS": "  "}).rotate_after_hours == 336.0
 
 
 def test_profile_dir_is_owner_only(tmp_path):

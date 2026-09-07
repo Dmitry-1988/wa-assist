@@ -243,7 +243,7 @@ uv run wa-login [--status|--quick|--reset]
 uv run wa-agent list|allow|deny|chats|unread|pending|drop|read
 uv run wa-agent digest-catchup       # treat everything now as already digested
 uv run wa-agent tick                  # one cycle by hand
-uv run pytest                         # 573 tests
+uv run pytest                         # 593 tests
 uv run pytest -m "not browser"        # the fast subset
 ```
 
@@ -253,7 +253,7 @@ uv run pytest -m "not browser"        # the fast subset
 |---|---|---|
 | `WA_PROFILE_DIR` | `./.wa-profile` | Chromium user-data directory |
 | `WA_STATE_DIR` | `./.wa-state` | where the rotation timestamp lives |
-| `WA_ROTATE_AFTER_HOURS` | `24` | session rotation policy |
+| `WA_ROTATE_AFTER_HOURS` | `336` (14 days) | session rotation policy |
 | `WA_ENFORCE_ROTATION` | off | stop the daemon once the session is over-age |
 | `WA_DAEMON_LABEL` | `com.example.wa-agent` | your launchd label, for messages |
 | `WA_HEADED` | off | force a real (minimised) window instead of headless |
@@ -314,10 +314,27 @@ actually revokes access — deleting the profile only removes your local copy.
 and send as you. Treat it like an SSH key. It never leaves your machine and is
 gitignored.
 
-The session is rotated every 24h by policy. The daemon cannot rotate itself
-(linking needs a QR from your phone), so it warns in the self-chat at 6h, 2h and
-30m — while it still has a channel to warn through. Once the session lapses the
-self-chat is gone too, and the only fallback is a macOS notification.
+The session is rotated every **14 days** by policy. The daemon cannot rotate
+itself (linking needs a QR from your phone), so it warns in the self-chat at
+24h, 6h and 2h — while it still has a channel to warn through. Once the session
+lapses the self-chat is gone too, and the only fallback is a macOS notification.
+
+14 days is not WhatsApp's number either — WhatsApp expires a linked device on
+*inactivity* (roughly a fortnight of the phone being offline), not on a fixed
+lifetime, so a session left alone keeps working. It was 24h while the drafter
+could still reach the filesystem, because a prompt-injected run could write
+into `src/wa_session/`, which the daemon imports and executes, and copy the
+profile out from there. That path is closed. What rotation still buys is
+bounding the useful life of a copy taken by someone with brief access to an
+unlocked machine — worth having, not worth a QR scan every morning. An ignored
+policy protects nothing.
+
+**The profile must not live in a synced folder.** iCloud, Dropbox, OneDrive,
+Google Drive and the `~/Library/CloudStorage` mounts are refused outright,
+because sync defeats everything else at once: the file mode is irrelevant once
+Dropbox has a copy, FileVault protects a disk that is not the one it lands on,
+and rotation does not help because each new session is uploaded too. Point
+`WA_PROFILE_DIR` somewhere outside any sync folder.
 
 To revoke everything: **phone → Linked Devices → log out**, then
 `rm -rf .wa-profile .wa-state`.

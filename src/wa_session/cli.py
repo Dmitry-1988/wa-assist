@@ -181,10 +181,17 @@ def probe_live_state(config: Config, lock_wait_s: float = 45.0) -> str:
         return f"error: {type(exc).__name__}: {exc}"
 
 
+def _policy_age(hours: float) -> str:
+    """"336h" is a number to decode; "14 days" is one to act on."""
+    if hours >= 48 and hours % 24 == 0:
+        return f"{int(hours // 24)} days"
+    return f"{hours:g}h"
+
+
 def _status(config: Config, live: bool = True) -> int:
     log(f"profile: {config.profile_dir}")
     log(f"state:   {config.state_file}")
-    log(f"policy:  rotate after {config.rotate_after_hours:g}h")
+    log(f"policy:  rotate after {_policy_age(config.rotate_after_hours)}")
     state = read_state(config)
     recorded_ok = False
     if state is None:
