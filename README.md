@@ -294,7 +294,9 @@ sent twice.
 ### When something looks wrong
 
 **[docs/OPERATIONS.md](docs/OPERATIONS.md)** covers what each tick does, how to
-read `daemon.log`, and what to do when a draft or digest does not appear. The
+read `daemon.log`, and what to do when a draft or digest does not appear.
+**[docs/BACKENDS.md](docs/BACKENDS.md)** sketches what running the model on
+something other than Claude would take, and which parts are load-bearing. The
 short version:
 
 ```bash
