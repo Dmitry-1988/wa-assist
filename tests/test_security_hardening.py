@@ -241,6 +241,9 @@ class _Echo:
     def __init__(self, echo=True):
         self.sent, self.echo = [], echo
 
+    def evaluate(self, script, arg=None):
+        return "Read"
+
     def wait_for_timeout(self, ms):
         pass
 
@@ -333,6 +336,7 @@ def test_a_note_posted_with_emoji_is_confirmed_end_to_end(monkeypatch):
 
     class Page:
         def wait_for_timeout(self, ms): pass
+        def evaluate(self, script, arg=None): return "Read"
 
     import wa_session.selfchat as selfchat
     monkeypatch.setattr(selfchat, "post",

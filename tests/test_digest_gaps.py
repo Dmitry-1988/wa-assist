@@ -48,6 +48,12 @@ class FakePage:
 
     def wait_for_timeout(self, ms):
         pass
+    def evaluate(self, script, arg=None):
+        # WhatsApp's per-message delivery status. The real page returns
+        # "Pending" until the server takes the message; a fake that never
+        # acknowledges would make every post wait out its timeout.
+        return getattr(self, "delivery", "Read")
+
 
 
 @pytest.fixture(autouse=True)

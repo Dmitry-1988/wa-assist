@@ -96,6 +96,18 @@ The answer schema still **rejects** `chat`/`recipient`/`to`/`send`/`live`/`draft
   than transcribes and never mixes languages mid-sentence, quoting short Hebrew
   only where the exact wording carries the meaning. This is the DIGEST only —
   replies still go out in the language the other person wrote in.
+- **Rendering is not sending; wait for WhatsApp's acknowledgement.** A message
+  is in the composer's own chat the instant it is typed and sits at `Pending`
+  until the server takes it — so reading the text back proves only that THIS
+  browser drew it. The daemon closes the browser next, and a Pending message
+  dies there: no error, `summary_posted` in the log, nothing on the phone.
+  Two digests eleven minutes apart on 2026-09-07, identical markup and code
+  path — 14:22 arrived, 14:33 did not. The status lives in an `aria-label` on
+  the row (`Pending` → `Sent`/`Delivered`/`Read`); measured live, Pending at
+  1.9s and Read at 2.4s. `selfchat.wait_for_delivery` polls it, and both
+  `post_note` and `agent._post_and_locate` REFUSE anything not acknowledged —
+  the item stays queued and retries. A duplicate is recoverable; a digest that
+  never arrived while the log says it did is not.
 - **Nothing is treated as posted until it has been read back.** Both
   `tick.post_note` (notes and digests) and `agent._post_and_locate` (drafts)
   POLL until the message appears, and both check the `SendResult` that
@@ -157,7 +169,7 @@ uv run wa-agent list|allow|deny # allowlist (--mode reply|summarize)
 uv run wa-agent unread|chats|pending|drop|read|digest-catchup
 uv run wa-agent propose|poll|send [--live]
 uv run wa-agent tick            # one unattended cycle (the daemon runs this)
-uv run pytest                   # 638 tests; -m "not browser" for the fast ones
+uv run pytest                   # 650 tests; -m "not browser" for the fast ones
 ```
 
 Self-chat commands: `OK #XXX`, `NO #XXX`, `EDIT #XXX: …`, `GROUPSUM`.

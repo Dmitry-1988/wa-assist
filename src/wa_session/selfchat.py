@@ -10,6 +10,9 @@ send guards in `compose`.
 
 from __future__ import annotations
 
+import re
+import time
+
 from . import selectors
 from .compose import (SendResult, header_recipient, send_message,
                       wait_for_chat_ready)
@@ -52,6 +55,60 @@ def post(page, text: str, dry_run: bool = False) -> SendResult:
     result = send_message(page, name, text, dry_run=dry_run)
     invalidate(page)      # the cached history no longer includes what we sent
     return result
+
+
+# WhatsApp puts the per-message delivery status in an aria-label on the row:
+# "Pending" until the server has it, then "Sent" / "Delivered" / "Read".
+# Measured on a live self-chat 2026-09-07: Pending at 1.9s, Read at 2.4s.
+_ACKED = re.compile(r"read|deliver|sent", re.IGNORECASE)
+_PENDING = re.compile(r"pending", re.IGNORECASE)
+
+_STATUS_JS = """(msgId) => {
+  const holder = document.querySelector('#main [data-id="' +
+                 msgId.replace(/"/g, '\\"') + '"]');
+  if (!holder) return 'absent';
+  const row = holder.closest('[role="row"]') || holder;
+  const labels = [...row.querySelectorAll('[aria-label]')]
+    .map(n => (n.getAttribute('aria-label') || '').trim())
+    .filter(s => /read|deliver|sent|pending/i.test(s));
+  return labels.length ? labels.join(',') : 'none';
+}"""
+
+
+def delivery_state(page, msg_id: str) -> str:
+    """'absent', 'none', or whatever status WhatsApp is showing for `msg_id`."""
+    if not msg_id:
+        return "absent"
+    try:
+        return str(page.evaluate(_STATUS_JS, msg_id) or "none")
+    except Exception:
+        return "none"
+
+
+def wait_for_delivery(page, msg_id: str, timeout_s: float = 20.0) -> str:
+    """Block until WhatsApp acknowledges `msg_id`. Returns the final state.
+
+    Rendering is not sending. A message appears in the composer's own chat
+    immediately and sits at "Pending" until the server takes it -- so reading
+    the text back proves only that this browser drew it, which is exactly what
+    `post_note` was doing when it declared success.
+
+    The daemon then closes the browser, and a message still Pending at that
+    moment is simply lost: no error anywhere, `summary_posted` in the log, and
+    nothing on the user's phone. One digest survived this on 2026-09-07 and the
+    next one, eleven minutes later, did not.
+
+    Caller decides what a non-acknowledged result means; this only waits.
+    """
+    deadline = time.monotonic() + timeout_s
+    state = delivery_state(page, msg_id)
+    while True:
+        if _ACKED.search(state):
+            return state
+        if time.monotonic() >= deadline:
+            return state
+        page.wait_for_timeout(400)
+        state = delivery_state(page, msg_id)
 
 
 _CACHE_ATTR = "_wa_selfchat_cache"

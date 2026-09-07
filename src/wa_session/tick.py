@@ -497,7 +497,13 @@ def _fingerprint(text: str) -> str:
     return " ".join("".join(kept).split()).casefold()
 
 
-def post_note(page, text: str, settle_s: float = 12.0) -> str:
+def _delivered(state: str) -> bool:
+    """WhatsApp's own word for it. "Pending" and "absent" are not delivery."""
+    return bool(re.search(r"read|deliver|sent", state or "", re.IGNORECASE))
+
+
+def post_note(page, text: str, settle_s: float = 12.0,
+              ack_s: float = 20.0) -> str:
     """Post a note into the self-chat and CONFIRM it is really there.
 
     Two failures made this necessary, both seen in production:
@@ -517,7 +523,8 @@ def post_note(page, text: str, settle_s: float = 12.0) -> str:
 
     So the note is read back until it appears. Returns its message id.
     """
-    from .selfchat import post as post_selfchat, read as read_selfchat
+    from .selfchat import (post as post_selfchat, read as read_selfchat,
+                           wait_for_delivery)
 
     outcome = post_selfchat(page, text)
     if outcome is not None:
@@ -528,21 +535,37 @@ def post_note(page, text: str, settle_s: float = 12.0) -> str:
 
     needle = _fingerprint(text)[:60]
     deadline = time.monotonic() + settle_s
-    while True:
+    marker = ""
+    while not marker:
         try:
             for message in reversed(read_selfchat(page, limit=8,
                                                   refresh=True,
                                                   scroll=False)):
                 if needle and needle in _fingerprint(message.text or ""):
-                    return message.msg_id
+                    marker = message.msg_id
+                    break
         except Exception:
             pass
+        if marker:
+            break
         if time.monotonic() >= deadline:
             raise RuntimeError(
                 "note was reported sent but never appeared in the self-chat "
                 f"within {settle_s:g}s -- treating it as not delivered"
             )
         page.wait_for_timeout(500)
+
+    # Rendering is not sending. The note is in this browser's own chat the
+    # instant it is typed, and sits at "Pending" until WhatsApp takes it -- so
+    # everything above proves only that we drew it. The caller closes the
+    # browser next, and a Pending message dies there.
+    state = wait_for_delivery(page, marker, timeout_s=ack_s)
+    if not _delivered(state):
+        raise RuntimeError(
+            f"note reached the chat but WhatsApp never acknowledged it "
+            f"(status={state!r}) -- treating it as not delivered"
+        )
+    return marker
 
 
 _OWN_TITLE = re.compile(r"^\s*(?:📋\s*)?GROUP DIGEST\b[^\n]*\n+", re.IGNORECASE)

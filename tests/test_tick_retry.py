@@ -38,6 +38,11 @@ class FakePage:
 
     def wait_for_timeout(self, ms):
         pass
+    def evaluate(self, script, arg=None):
+        # The per-message delivery status. A fake that never acknowledges
+        # makes every post wait out its timeout and then fail.
+        return getattr(self, "delivery", "Read")
+
 
 
 @pytest.fixture(autouse=True)
