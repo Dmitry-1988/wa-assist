@@ -163,6 +163,9 @@ tmutil isexcluded .wa-profile          # "[Included]" means it gets backed up
 sudo tmutil addexclusion .wa-profile
 ```
 
+`[UNKNOWN]` just means the folder does not exist yet — do this after step 2,
+once you have linked and the profile has been created.
+
 Do this even if you have no backup drive today — the exclusion is what makes it
 safe to attach one later. Cloud-sync folders (iCloud, Dropbox, OneDrive, Google
 Drive, `~/Library/CloudStorage`) are refused outright at startup, so you cannot
