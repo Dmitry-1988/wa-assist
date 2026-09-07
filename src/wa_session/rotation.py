@@ -29,7 +29,10 @@ from .state import SessionState
 
 # Hours of remaining life at which to speak up. Each fires at most once per
 # session. 6h is "plan for it", 2h is "do it today", 0.5h is "do it now".
-WARN_AT_HOURS = (6.0, 2.0, 0.5)
+# Scaled to the 14-day policy. At 24h, "30 minutes left" was a useful nudge;
+# on a fortnightly clock it is a fire alarm at the end of a fortnight, and a
+# day's notice is what actually lets someone find their phone.
+WARN_AT_HOURS = (24.0, 6.0, 2.0)
 
 # A logged-out daemon notifies the desktop instead, but only this often.
 DESKTOP_THROTTLE_S = 3600.0
