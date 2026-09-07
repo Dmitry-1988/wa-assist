@@ -1,5 +1,7 @@
 """No module may import two different things under one name.
 
+Two variants, both seen in production within a day of each other.
+
 `tick.py` imported `read_state` from `.state` (the WhatsApp session record)
 and then, two lines later, `read_state` from `.watermarks` (the digest
 record). The second silently replaced the first, so the rotation check called
@@ -60,3 +62,51 @@ def test_the_two_read_functions_still_have_different_names():
     assert not hasattr(watermarks, "read_state"), \
         "watermarks must not export a name that shadows state.read_state"
     assert hasattr(watermarks, "read_reported")
+
+
+# --- and a local import must not shadow a module-level one ----------------
+
+def module_level_names(tree: ast.AST) -> set[str]:
+    """Names bound by imports at module scope only."""
+    names = set()
+    for node in tree.body:
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            for alias in node.names:
+                names.add(alias.asname or alias.name.split(".")[0])
+    return names
+
+
+def function_local_imports(tree: ast.AST):
+    """(function name, imported name, lineno) for imports inside a function."""
+    for func in ast.walk(tree):
+        if not isinstance(func, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for node in ast.walk(func):
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                for alias in node.names:
+                    yield (func.name,
+                           alias.asname or alias.name.split(".")[0],
+                           node.lineno)
+
+
+@pytest.mark.parametrize("path", MODULES, ids=lambda p: p.name)
+def test_no_local_import_shadows_a_module_level_one(path):
+    """`agent_cli.main` imported `Allowlist` inside one branch while the module
+    already imported it at the top. Python then treats the name as local for
+    the ENTIRE function, so an earlier branch -- `wa-agent list` -- died with
+
+        UnboundLocalError: cannot access local variable 'Allowlist'
+
+    The import looked redundant rather than harmful, which is why it survived
+    review. It broke the first command a new user runs.
+    """
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    top = module_level_names(tree)
+    for func, name, lineno in function_local_imports(tree):
+        if name in top:
+            pytest.fail(
+                f"{path.name}:{lineno}: {func}() imports '{name}', which is "
+                f"already imported at module level. That makes '{name}' local "
+                f"to all of {func}(), so any earlier use raises "
+                "UnboundLocalError."
+            )
