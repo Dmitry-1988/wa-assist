@@ -272,10 +272,34 @@ policy, not WhatsApp's: past the deadline the daemon keeps working and only
 warns, unless `WA_ENFORCE_ROTATION=1`.
 
 It was 24h until 2026-09-07, set while a prompt-injected drafting run could
-still write into the package the daemon executes. With that closed, rotation
-bounds a profile copy taken from an unlocked machine and little else — and a
-policy that demands a QR scan every morning gets ignored, which protects
-nothing.
+still write into the package the daemon executes. With that closed, a policy
+demanding a QR scan every morning was buying very little for what it cost.
+
+### Rotation does not revoke anything by itself
+
+Worth being exact about, because the name oversells it and an earlier version
+of this document did too.
+
+| | at the deadline | is the session still usable by a copied profile? |
+|---|---|---|
+| default | warns, keeps working | **yes** |
+| `WA_ENFORCE_ROTATION=1` | tick reports `blocked`, stops | **yes** |
+| running `wa-login` | unlinks, wipes, re-links | no |
+
+`log_out()` has exactly one caller — `wa-login`. The daemon never unlinks. So
+`WA_ENFORCE_ROTATION` stops your agent while leaving the device linked and the
+session valid: it costs availability and reduces exposure by nothing. It is a
+"stop nagging me by stopping" switch, not a security control.
+
+What actually bounds exposure is a person running `uv run wa-login --reset`.
+The policy sends a reminder; it does not act. Read the interval as "how often
+am I reminded", not "how long a leaked profile stays valid".
+
+An auto-unlink at the deadline — the daemon driving the same logout flow — is
+the variant that would make the name true. It is not implemented. Its cost is
+availability, and not a small one: fired while you are away, the agent is off
+until you are back with your phone, and it cannot tell you in the self-chat
+because unlinking is what removes that channel.
 
 Note that a plain `wa-login` **before** the deadline is a no-op — it finds a
 valid session and prints "within policy". Only `--reset` (or a login after
