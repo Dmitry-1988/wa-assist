@@ -18,11 +18,18 @@ DEFAULT_STATE_DIRNAME = ".wa-state"
 # 24h was a defence-in-depth guess made while the drafter could still reach the
 # filesystem: a prompt-injected run could write into src/wa_session/, which the
 # daemon imports and executes, and from there copy the profile out. That path
-# is closed -- the drafter has no filesystem and no shell at all -- and what
-# rotation still buys is bounding the useful life of a copy taken by someone
-# with brief access to an unlocked machine. Daily QR scans were a heavy price
-# for that alone, and an ignored policy protects nothing: the warnings were
-# simply becoming noise.
+# is closed -- the drafter has no filesystem and no shell at all.
+#
+# Be precise about what the remaining policy does, because the name oversells
+# it. NOTHING here revokes a session. Reaching the deadline warns; passing it
+# does nothing at all, and WA_ENFORCE_ROTATION only makes the daemon STOP --
+# the device stays linked, the session stays valid, and a copied profile keeps
+# working. The unlink happens solely inside `wa-login`, which a human runs.
+#
+# So this is a reminder interval, not a revocation interval. It bounds
+# exposure only to the extent that someone acts on the warning. That is worth
+# having and is not worth a QR scan every morning.  See docs/OPERATIONS.md
+# ("Rotation does not revoke anything by itself").
 DEFAULT_ROTATE_AFTER_HOURS = 336.0
 
 # The profile is a live credential; keep it owner-only.

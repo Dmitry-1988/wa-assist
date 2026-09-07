@@ -350,10 +350,14 @@ lapses the self-chat is gone too, and the only fallback is a macOS notification.
 lifetime, so a session left alone keeps working. It was 24h while the drafter
 could still reach the filesystem, because a prompt-injected run could write
 into `src/wa_session/`, which the daemon imports and executes, and copy the
-profile out from there. That path is closed. What rotation still buys is
-bounding the useful life of a copy taken by someone with brief access to an
-unlocked machine — worth having, not worth a QR scan every morning. An ignored
-policy protects nothing.
+profile out from there. That path is closed.
+
+**Rotation does not revoke anything by itself.** Reaching the deadline posts a
+warning; passing it does nothing, and `WA_ENFORCE_ROTATION=1` only makes the
+daemon *stop* — the device stays linked, the session stays valid, and a copy of
+`.wa-profile` keeps working. The unlink lives in `wa-login`, which a person
+runs. Treat this as a reminder interval, not a revocation interval: it bounds
+exposure only as far as you act on the warning.
 
 **The profile must not live in a synced folder.** iCloud, Dropbox, OneDrive,
 Google Drive and the `~/Library/CloudStorage` mounts are refused outright,

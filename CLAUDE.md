@@ -273,9 +273,15 @@ warns; set `WA_ENFORCE_ROTATION=1` to make it stop instead.
 
 It was 24h while the drafter could still reach the filesystem — a prompt
 injection could `Write` into `src/wa_session/` and copy the profile out. That
-path is closed, so what rotation still buys is bounding a copy taken by
-someone with brief access to an unlocked machine. Daily QR scans were not
-proportionate to that, and the warnings had become noise.
+path is closed.
+
+**Nothing here revokes a session.** `log_out()` has ONE caller, `wa-login`.
+The daemon never unlinks, so passing the deadline changes nothing and
+`WA_ENFORCE_ROTATION=1` only makes the tick stop — the device stays linked and
+a copied profile keeps working. It costs availability and reduces exposure by
+zero. This is a reminder interval, not a revocation interval; do not write
+otherwise, as three docs did until 2026-09-07. Auto-unlink at the deadline
+would make the name true and is not implemented.
 
 `config.assert_not_synced` refuses a profile inside iCloud, Dropbox, OneDrive,
 Google Drive or `~/Library/CloudStorage`. Sync defeats the file mode,
