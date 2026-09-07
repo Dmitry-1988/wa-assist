@@ -206,8 +206,7 @@ def read_chat(page, chat: str, depth: int = 10) -> dict:
     see `_collect_group_messages`. Scrolling is the expensive part (~1.2s a
     step), which is why this is not simply always deep.
     """
-    from .export import find_row_by_name
-    from .messages import capture_chat
+    from .messages import capture_chat   # local: not imported at module level
 
     row = find_row_by_name(page, chat)
     if row is None:

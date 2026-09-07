@@ -39,6 +39,10 @@ itself never says "I checked your calendar", because that is not how you text.
 
 ## Read this before you install it
 
+If you were given this by a friend, read **[DISCLAIMER.md](DISCLAIMER.md)**
+first — it is the one page that matters, and the risks in it land on you and
+on the people who message you.
+
 **This automates WhatsApp Web, which is against WhatsApp's Terms of Service.**
 Accounts have been banned for less. This is a personal experiment, not a
 product; run it on an account you can afford to lose, and do not deploy it for
@@ -132,6 +136,7 @@ becomes a confident reply built on nothing.
 ### 4. Tell it whose calendars to read
 
 ```bash
+mkdir -p .wa-agent && chmod 700 .wa-agent
 cp context.example.json .wa-agent/context.json   # then edit
 ```
 
@@ -147,7 +152,23 @@ uv run wa-agent allow "Building" --group --mode summarize
 uv run wa-agent list
 ```
 
-### 6. Run the daemon
+### 6. Keep the profile off your backups
+
+`.wa-profile/` is a live WhatsApp credential. Time Machine will happily copy it
+to an external drive, where it is no longer protected by anything on this
+machine:
+
+```bash
+tmutil isexcluded .wa-profile          # "[Included]" means it gets backed up
+sudo tmutil addexclusion .wa-profile
+```
+
+Do this even if you have no backup drive today — the exclusion is what makes it
+safe to attach one later. Cloud-sync folders (iCloud, Dropbox, OneDrive, Google
+Drive, `~/Library/CloudStorage`) are refused outright at startup, so you cannot
+make that mistake by accident; Time Machine is the one that needs you.
+
+### 7. Run the daemon
 
 ```bash
 cp examples/com.example.wa-agent.plist ~/Library/LaunchAgents/
@@ -243,7 +264,7 @@ uv run wa-login [--status|--quick|--reset]
 uv run wa-agent list|allow|deny|chats|unread|pending|drop|read
 uv run wa-agent digest-catchup       # treat everything now as already digested
 uv run wa-agent tick                  # one cycle by hand
-uv run pytest                         # 593 tests
+uv run pytest                         # 638 tests
 uv run pytest -m "not browser"        # the fast subset
 ```
 

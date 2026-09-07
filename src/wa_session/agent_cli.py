@@ -165,7 +165,10 @@ def main(argv: list[str] | None = None) -> int:
         # after it re-reported the same history. The record cannot be repaired
         # from the ids it kept -- they are the rewound ones -- so this draws a
         # line: everything visible now counts as already reported.
-        from .allowlist import Allowlist
+        # NOT `from .allowlist import Allowlist` -- it is already imported at
+        # module level, and a local import of the same name makes it local to
+        # the WHOLE function, so every earlier branch raises UnboundLocalError.
+        # That broke `wa-agent list` outright.
         from .tick import SUMMARY_CAPTURE_DEPTH
         from .watermarks import advance
 
