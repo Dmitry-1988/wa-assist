@@ -15,6 +15,7 @@ Sending requires ALL of:
 from __future__ import annotations
 
 import json
+import re
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -244,7 +245,8 @@ def _fresh_draft_id(config: Config, attempts: int = 40) -> str:
 
 
 def _post_and_locate(page, text: str, draft_id: str,
-                     settle_s: float = 12.0) -> str:
+                     settle_s: float = 12.0,
+                     ack_s: float = 20.0) -> str:
     """Post a draft and wait for it to really be there. Returns its message id.
 
     A single read straight after `post` is not enough, and believing it was
@@ -272,19 +274,34 @@ def _post_and_locate(page, text: str, draft_id: str,
             )
 
     deadline = time.monotonic() + settle_s
-    while True:
+    marker = ""
+    while not marker:
         try:
             # scroll=False: only the newest messages matter, and a full
             # scrolling read costs ~6s of the settle budget it is spending.
             marker = find_message_id(read(page, limit=8, refresh=True,
                                           scroll=False), draft_id)
-            if marker:
-                return marker
         except Exception:
             pass
+        if marker:
+            break
         if time.monotonic() >= deadline:
             return ""
         page.wait_for_timeout(500)
+
+    # And wait for WhatsApp to actually take it. A draft still "Pending" when
+    # the browser closes never reaches the phone, and an approval typed against
+    # a draft the user cannot see is an approval that never comes.
+    from .selfchat import wait_for_delivery
+
+    state = wait_for_delivery(page, marker, timeout_s=ack_s)
+    if not re.search(r"read|deliver|sent", state or "", re.IGNORECASE):
+        raise RuntimeError(
+            f"draft {draft_id} reached the chat but WhatsApp never "
+            f"acknowledged it (status={state!r}); not arming an approval for a "
+            "message that may never arrive"
+        )
+    return marker
 
 
 def propose(page, config: Config, chat: str, body: str,

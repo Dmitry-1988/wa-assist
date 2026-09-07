@@ -91,6 +91,11 @@ queue item is kept and retried, so it resolves itself; the orphan text stays in
 the chat and is only clutter. If it repeats every tick, the send is being
 refused rather than lost: check `daemon.err.log`.
 
+A `summary_post_failed` or `propose_failed` mentioning *acknowledged* means
+WhatsApp never took the message. It rendered in the browser and stayed
+`Pending`; had the daemon trusted that, the log would say delivered and your
+phone would show nothing. The item is kept and retried.
+
 `summary_post_failed` is the one to take seriously: it means a digest was
 generated and could not be delivered. The queue item and its watermarks are
 deliberately left untouched, so the next `GROUPSUM` retries it. Nothing is

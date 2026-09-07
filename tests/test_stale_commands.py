@@ -33,6 +33,10 @@ class Page:
         self.incoming = [_Msg(t, f"m{i}") for i, t in enumerate(texts)]
         self.posted = []
 
+    def evaluate(self, script, arg=None):
+        # Delivery status. Without it every post waits out its timeout.
+        return getattr(self, "delivery", "Read")
+
     def wait_for_timeout(self, ms):
         pass
 
