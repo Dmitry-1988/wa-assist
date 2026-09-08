@@ -72,6 +72,20 @@ The answer schema still **rejects** `chat`/`recipient`/`to`/`send`/`live`/`draft
 - Recipient verified on two independent signals (header title + composer
   aria-label); any conflict refuses.
 - Never infer availability from one calendar. Query all three (see memory).
+- **A reply answers THEIR message, never ours.** `quoted` is the last captured
+  message and nothing used to check the sender. A photo with no caption leaves
+  no text row — `extract_messages` drops empty rows, which is how date
+  separators are excluded — so the newest text was the user's own reply from
+  hours earlier and the daemon drafted an answer to it. In a `reply` chat the
+  other party IS the chat, so `sender != chat` means it came from us:
+  `_nothing_to_answer` refuses, and the chat re-queues when they next write.
+- **A connected MCP server is not a working one.** `mcp_health` reads the init
+  handshake; it cannot know whether a CALL will succeed. workspace-mcp stays
+  `connected` with dead Google OAuth and answers every call "Google
+  Authentication Needed", so the run proceeds and the model writes a confident
+  reply having checked nothing — and says so in its own sources, in a message
+  the user is invited to approve. `drafter.tool_failure` scans tool results and
+  kills the run: auth is global, so the first failure is enough.
 - **The drafter reports facts; it never creates obligations.** No promises
   ("скину вечером"), no accepting or proposing plans, dates, bookings, spending
   or attendance, no agreeing to a request. A free calendar is not consent to
@@ -169,7 +183,7 @@ uv run wa-agent list|allow|deny # allowlist (--mode reply|summarize)
 uv run wa-agent unread|chats|pending|drop|read|digest-catchup
 uv run wa-agent propose|poll|send [--live]
 uv run wa-agent tick            # one unattended cycle (the daemon runs this)
-uv run pytest                   # 650 tests; -m "not browser" for the fast ones
+uv run pytest                   # 670 tests; -m "not browser" for the fast ones
 ```
 
 Self-chat commands: `OK #XXX`, `NO #XXX`, `EDIT #XXX: …`, `GROUPSUM`.
