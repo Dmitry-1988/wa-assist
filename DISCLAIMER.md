@@ -35,12 +35,12 @@ what you owe people, this will break that.
 These are third parties. They did not agree to any of this, and they cannot
 tell that a machine opened their message.
 
-## 3. You need your own Google Cloud project
+## 3. Setup needs a Google Cloud project of your own
 
-Not the author's, and not a friend's. Sharing one OAuth client means sharing a
-secret that eventually leaks, sharing a quota, and sharing a suspension if any
-one person's usage trips a limit. It is fifteen minutes of console work:
-[docs/GOOGLE_SETUP.md](docs/GOOGLE_SETUP.md).
+About fifteen minutes in the Google Cloud Console, creating an OAuth client so
+the drafter can read your mail and calendar:
+[docs/GOOGLE_SETUP.md](docs/GOOGLE_SETUP.md). If that is more than you want to
+do, this is the point to stop.
 
 ## 4. Your messages are sent to Anthropic
 

@@ -5,14 +5,7 @@ reading your mail and calendar through
 [workspace-mcp](https://github.com/taylorwilsdon/google_workspace_mcp). That
 needs a Google OAuth client of your own.
 
-**Make your own. Do not use someone else's.** If a friend hands you their
-client id and secret it will appear to work, and it is a bad idea for four
-reasons: a secret shared among several people leaks eventually, and then anyone
-can put up a consent screen wearing this app's name; your usage lands on their
-Google project, where quotas, warnings and verification demands apply to
-everyone at once; if their client is suspended or rotated your agent stops with
-no warning; and they, not you, own the consent relationship for your mailbox.
-Fifteen minutes of console work buys complete separation.
+Make your own — a client is per-person, not something to share.
 
 This takes about fifteen minutes and has four traps in it. Each one is called
 out below, because every one of them has already cost someone an evening.

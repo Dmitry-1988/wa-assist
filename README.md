@@ -121,8 +121,7 @@ enabled.
 and contains four traps that each cost an evening: the client must be a **Web
 application** and not a Desktop app, the redirect URI must match exactly, the
 consent screen must be **published** or Google expires your token every seven
-days, and uploading a logo forces a verification review. Make your own client;
-do not reuse someone else's.
+days, and uploading a logo forces a verification review.
 
 The short version, once you have the client id and secret:
 
