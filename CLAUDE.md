@@ -1,4 +1,4 @@
-# wa-session — WhatsApp reply agent
+# wa-assist — WhatsApp reply agent
 
 Python + Playwright drives WhatsApp Web on a persistent Chromium profile. A
 launchd daemon polls for messages, a headless Claude run drafts replies, and the
@@ -26,6 +26,20 @@ Withholding `Edit` never prevented it. Path-scoping cannot fix it either:
 `Write(<dir>/**)` fails closed in this CLI even inside the scope.
 
 The answer schema still **rejects** `chat`/`recipient`/`to`/`send`/`live`/`draft_id`.
+
+## The other documents
+
+- `README.md` — install and use it. `DISCLAIMER.md` — what a beta user is
+  accepting (ban risk, read receipts, cost).
+- `docs/OPERATIONS.md` — one tick in order, every `daemon.log` key, state
+  files, known limitations, latency. **Read the `error` key first** when
+  diagnosing: a tick that dies early logs empty `actions` and looks idle.
+- `docs/GOOGLE_SETUP.md` — the OAuth client, and the four traps that cost a
+  day each (Web application not Desktop; the exact redirect URI; publish the
+  consent screen or Google expires the refresh token every 7 days; no logo).
+- `docs/BACKENDS.md` — sketch only, nothing implemented, for running the model
+  on something other than Claude.
+- `SECURITY.md` — the boundary, and the disclosed privilege-escalation finding.
 
 ## Invariants
 
@@ -122,20 +136,16 @@ The answer schema still **rejects** `chat`/`recipient`/`to`/`send`/`live`/`draft
   `post_note` and `agent._post_and_locate` REFUSE anything not acknowledged —
   the item stays queued and retries. A duplicate is recoverable; a digest that
   never arrived while the log says it did is not.
-- **Nothing is treated as posted until it has been read back.** Both
-  `tick.post_note` (notes and digests) and `agent._post_and_locate` (drafts)
-  POLL until the message appears, and both check the `SendResult` that
-  `selfchat.post` returns instead of raising. `propose` did neither: it read
-  ONCE, immediately, so a message still in flight looked like a failure. It
-  raised, the caller closed the browser, and the draft either landed with no
-  pending entry to arm it or was dropped with the context — seven paid runs
-  and seven orphan drafts on 2026-09-06. An unarmed draft is worse than none:
-  `OK #XXX` on one reaches no code path and reads as a dead daemon. Two separate failures make that necessary:
-  `selfchat.post` returns a SendResult and does not raise on a post-click
-  refusal; and even a genuine "sent" is not yet transmitted when the call
-  returns, so `_post_phase` closing the browser immediately dropped the
-  message — `summary_posted` in the log, nothing in the chat. Drafts never hit
-  this because `propose` already reads back to find `marker_id`.
+- **A post is three separate checks, and skipping any of them loses messages.**
+  `selfchat.post` RETURNS a `SendResult` and does not raise when a send is
+  refused after the click, so (1) the result must be inspected. The message
+  then renders before it transmits, so (2) it must be polled for until it
+  appears — `propose` read ONCE, immediately, and a message still in flight
+  looked like a failure: it raised, the caller closed the browser, and seven
+  paid runs on 2026-09-06 left seven orphan drafts that no `OK` could reach.
+  And appearing is not sending, so (3) the acknowledgement above must be
+  waited for. Each check was added after the previous one was believed
+  sufficient; assume a fourth is missing rather than that this is finished.
 - **Read-backs compare fingerprints, not raw text.** WhatsApp renders emoji as
   `<img>` and `inner_text` drops them: a note posted as `📋 GROUP DIGEST 13:16`
   reads back as `GROUP DIGEST 13:16`. Matching raw text declared every digest
@@ -261,6 +271,15 @@ Self-chat commands: `OK #XXX`, `NO #XXX`, `EDIT #XXX: …`, `GROUPSUM`.
   same profile lock for its whole run (waits up to `LOCK_WAIT_S`, then refuses)
   — rotation calls `rmtree` on a directory a tick may be driving. `--status`
   takes no lock: it only reads a timestamp.
+- **`workspace-mcp` is PINNED** (`uvx workspace-mcp@1.26.0`) in the MCP
+  registration. Unpinned, every drafting run resolves whatever is newest that
+  minute — an untested third-party dependency in the daemon's critical path,
+  whose breakage would look exactly like the Google auth failure of
+  2026-09-08 and be diagnosed as slowly. Raise it deliberately, then re-verify
+  Gmail and Calendar. The Claude Code CLI is the remaining unpinned dependency
+  and cannot be pinned: `mcp_health` reads the shape of its `system/init`
+  event and `tool_failure` the shape of its tool results, so a CLI change
+  breaks the two gates that stop a reply being built on nothing.
 - **Opening a chat spends its read receipt**, at capture time — before any
   draft exists. Rejecting a draft cannot take that back, and the chat is no
   longer unread, so nothing re-queues it. See the warning atop `messages.py`.
@@ -277,7 +296,8 @@ journal.jsonl, queue/, outbox/, daemon.log. All gitignored, all `0600`/`0700`.
 ## Daemon
 
 `~/Library/LaunchAgents/<your-label>.plist` (set `WA_DAEMON_LABEL` to match),
-every 120s. Needs the Aqua GUI session.
+every 120s. Runs headless and puts nothing on screen; the Aqua GUI session is
+needed for `wa-login`, which must show a QR.
 
 A recorded session can be **stale**: WhatsApp may drop the link while the local
 record still reads "valid" — seen 2026-09-01, record 2h51m old and healthy while
