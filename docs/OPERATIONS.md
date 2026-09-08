@@ -399,7 +399,8 @@ uvx workspace-mcp --read-only --tools gmail calendar --help
 ```
 
 Google OAuth tokens live in `~/.google_workspace_mcp/credentials/`. Deleting
-them forces a fresh consent flow.
+them forces a fresh consent flow. The setup, and the four ways it goes wrong,
+are in **[GOOGLE_SETUP.md](GOOGLE_SETUP.md)**.
 
 **A connected server can still be unusable.** `status=connected` only means the
 process answered; if the Google token has expired or been revoked, every call

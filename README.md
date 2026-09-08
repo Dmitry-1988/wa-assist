@@ -114,8 +114,17 @@ uv run wa-login --status     # checks WhatsApp itself, not just the local record
 
 The drafter reads your mail and calendar through
 [workspace-mcp](https://github.com/taylorwilsdon/google_workspace_mcp), which
-needs a Google OAuth client (Desktop app) with the Gmail and Calendar APIs
-enabled. Register the server with Claude Code **for this project directory**:
+needs a Google OAuth client of your own, with the Gmail and Calendar APIs
+enabled.
+
+**Follow [docs/GOOGLE_SETUP.md](docs/GOOGLE_SETUP.md)** — it is fifteen minutes
+and contains four traps that each cost an evening: the client must be a **Web
+application** and not a Desktop app, the redirect URI must match exactly, the
+consent screen must be **published** or Google expires your token every seven
+days, and uploading a logo forces a verification review. Make your own client;
+do not reuse someone else's.
+
+The short version, once you have the client id and secret:
 
 ```bash
 claude mcp add workspace-mcp --scope project \
@@ -123,6 +132,7 @@ claude mcp add workspace-mcp --scope project \
   -e GOOGLE_OAUTH_CLIENT_SECRET=... \
   -e WORKSPACE_MCP_PORT=8000 \
   -e GOOGLE_OAUTH_REDIRECT_URI=http://localhost:8000/oauth2callback \
+  -e OAUTHLIB_INSECURE_TRANSPORT=1 \
   -- uvx workspace-mcp --read-only --tools gmail calendar
 ```
 

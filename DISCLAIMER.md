@@ -35,7 +35,14 @@ what you owe people, this will break that.
 These are third parties. They did not agree to any of this, and they cannot
 tell that a machine opened their message.
 
-## 3. Your messages are sent to Anthropic
+## 3. You need your own Google Cloud project
+
+Not the author's, and not a friend's. Sharing one OAuth client means sharing a
+secret that eventually leaks, sharing a quota, and sharing a suspension if any
+one person's usage trips a limit. It is fifteen minutes of console work:
+[docs/GOOGLE_SETUP.md](docs/GOOGLE_SETUP.md).
+
+## 4. Your messages are sent to Anthropic
 
 Every message in a chat you allowlist is sent to Claude to draft a reply, and
 every message in a group you monitor is sent to Claude to summarise. Your Gmail
@@ -45,20 +52,20 @@ from them.
 That includes whatever your family and friends happen to write to you. Do not
 allowlist a chat whose contents you would not put into a third-party service.
 
-## 4. It costs money, per message
+## 5. It costs money, per message
 
 Each incoming message in an allowlisted chat is a paid Claude run, as is each
 `GROUPSUM`. A busy group and a chatty week add up, and nothing here caps your
 spend. Watch it for the first few days.
 
-## 5. `.wa-profile/` is a live credential
+## 6. `.wa-profile/` is a live credential
 
 It is a logged-in WhatsApp session. Anyone who copies that folder can read and
 send as you, from their own machine, without your phone. Treat it exactly like
 an SSH private key: do not put it in a synced folder (the code refuses the
 common ones), do not put it in a backup, do not copy it to another machine.
 
-## 6. It is not finished
+## 7. It is not finished
 
 The honest version: over a single day of use, this project produced repeated
 digests, digests that omitted messages, approvals that were silently invisible
