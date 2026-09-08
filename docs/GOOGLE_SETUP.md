@@ -101,13 +101,20 @@ claude mcp add workspace-mcp --scope project \
   -e WORKSPACE_MCP_PORT=8000 \
   -e GOOGLE_OAUTH_REDIRECT_URI=http://localhost:8000/oauth2callback \
   -e OAUTHLIB_INSECURE_TRANSPORT=1 \
-  -- uvx workspace-mcp --read-only --tools gmail calendar
+  -- uvx workspace-mcp@1.26.0 --read-only --tools gmail calendar
 ```
 
 `--read-only` is the point of the whole arrangement: the drafter gets
 `search_gmail_messages`, `get_events` and their siblings, and cannot send mail
 or touch your calendar. `OAUTHLIB_INSECURE_TRANSPORT=1` permits the plain-HTTP
 loopback redirect, which never leaves your machine.
+
+**The version is pinned deliberately.** `uvx workspace-mcp` without `@1.26.0`
+resolves whatever is newest at the moment each drafting run starts — an
+unpinned third-party dependency in the daemon's critical path, with no test on
+this side that would notice a breaking change. It would present as tools that
+stop working for no visible reason, which is an afternoon nobody needs twice.
+Raise the pin deliberately, and re-run the check below afterwards.
 
 ---
 

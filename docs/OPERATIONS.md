@@ -389,6 +389,14 @@ recognising if anything like them returns:
 `pending` is the authority on what is actually approvable. A draft in the
 self-chat that is not listed there is inert, whatever it looks like.
 
+### The drafter's tools change behaviour for no reason
+
+`workspace-mcp` is pinned to a version in the MCP registration
+(`uvx workspace-mcp@1.26.0`). If someone drops the pin, every drafting run
+resolves whatever is newest that minute, and an upstream release can change the
+tool surface underneath a running daemon. Check the pin is still there before
+hunting anything subtler.
+
 ### `workspace-mcp` keeps failing to connect
 
 The drafting run is killed at the handshake, before any tokens are spent, and

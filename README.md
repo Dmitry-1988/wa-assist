@@ -132,7 +132,7 @@ claude mcp add workspace-mcp --scope project \
   -e WORKSPACE_MCP_PORT=8000 \
   -e GOOGLE_OAUTH_REDIRECT_URI=http://localhost:8000/oauth2callback \
   -e OAUTHLIB_INSECURE_TRANSPORT=1 \
-  -- uvx workspace-mcp --read-only --tools gmail calendar
+  -- uvx workspace-mcp@1.26.0 --read-only --tools gmail calendar
 ```
 
 `--read-only` matters: the drafter is granted only `search_gmail_messages`,
