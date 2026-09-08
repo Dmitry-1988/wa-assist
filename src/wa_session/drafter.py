@@ -14,6 +14,7 @@ tool set and undo the whole arrangement.
 from __future__ import annotations
 
 import json
+import re
 import shlex
 import shutil
 import subprocess
@@ -103,6 +104,49 @@ def mcp_health(init_event: dict) -> tuple[bool, str]:
         short = ", ".join(t.rsplit("__", 1)[-1] for t in missing)
         return False, f"{MCP_SERVER} connected but not offering {short}"
     return True, "connected"
+
+
+# A tool that is offered but cannot be used is not context. workspace-mcp
+# stays "connected" while its Google OAuth is dead and answers every call with
+# "Google Authentication Needed" -- so the handshake passes, the run proceeds,
+# and the model writes a confident reply having checked nothing. Seen
+# 2026-09-08: six ticks correctly refused with status=pending, the server then
+# reconnected, and the seventh produced a draft whose own sources said
+# "НЕ проверен: MCP вернул 'Google Authentication Needed'" for every calendar
+# and for Gmail.
+_AUTH_FAILURE = re.compile(
+    r"authentication needed|not authenticated|invalid[_ ]grant|"
+    r"credentials (?:are )?(?:missing|invalid|expired)|reauthenticat",
+    re.IGNORECASE)
+
+
+def tool_failure(event: dict) -> str:
+    """The auth failure in a tool result, or "" if this event is not one.
+
+    Auth is global to the server: one call failing this way means every call
+    will, so the first is enough to abandon the run.
+    """
+    if event.get("type") != "user":
+        return ""
+    content = (event.get("message") or {}).get("content")
+    if isinstance(content, str):
+        blocks = [{"type": "tool_result", "content": content}]
+    elif isinstance(content, list):
+        blocks = content
+    else:
+        return ""
+    for block in blocks:
+        if not isinstance(block, dict) or block.get("type") != "tool_result":
+            continue
+        body = block.get("content")
+        if isinstance(body, list):
+            body = " ".join(str(p.get("text", "")) for p in body
+                            if isinstance(p, dict))
+        text = str(body or "")
+        found = _AUTH_FAILURE.search(text)
+        if found:
+            return f"a tool call failed: {found.group(0)}"
+    return ""
 
 
 def _event(line: str) -> dict | None:
@@ -356,6 +400,14 @@ def run_drafter(item: QueueItem, config: Config, timeout_s: int = 300) -> dict:
                     break
             elif event.get("type") == "result":
                 final = event
+            else:
+                # The handshake only proves the server answered. Whether its
+                # tools WORK is not known until one is called.
+                broken = tool_failure(event)
+                if broken:
+                    unusable = broken
+                    proc.kill()
+                    break
     finally:
         killer.cancel()
         try:

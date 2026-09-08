@@ -335,6 +335,11 @@ def _browser_phase(config: Config, result: dict) -> dict:
             captured = read_chat(page, chat["chat"])
             if not captured.get("ok"):
                 continue
+            why = _nothing_to_answer(captured["messages"], chat["chat"])
+            if why:
+                result["actions"].append(
+                    {"not_queued": chat["chat"], "reason": why})
+                continue
             item = QueueItem(
                 queue_id=_queue_id(chat["chat"]),
                 chat=chat["chat"],
@@ -757,6 +762,35 @@ def _rotation_blocks(page, config: Config, result: dict) -> bool:
         "(set WA_ENFORCE_ROTATION=0 to keep running instead)"
     )
     return True
+
+
+def _nothing_to_answer(messages: list[dict], chat: str) -> str:
+    """Why this chat must not be drafted for, or "" if it is answerable.
+
+    `quoted` is the LAST captured message, and nothing checked who sent it. On
+    2026-09-08 the newest message in a chat was a photo with no caption --
+    `extract_messages` drops rows with no text, by design, because that is how
+    date separators and encryption notices are excluded -- so the last message
+    with text was the USER'S OWN reply from the night before. The daemon
+    drafted an answer to something the user had written himself.
+
+    In a `reply` chat the other party is the chat, so a message whose sender is
+    not the chat name came from us. Refusing costs a drafting run that would
+    have been nonsense anyway; the chat is already read, and a real message
+    from them makes it unread again and queues it normally.
+
+    A photo with no caption is not answerable either: the drafter cannot see
+    it, and inventing a reply to an image is worse than saying nothing.
+    """
+    if not messages:
+        return "nothing with text was captured"
+    last = messages[-1]
+    sender = (last.get("sender") or "").strip()
+    if not sender:
+        return "the newest message has no identifiable sender"
+    if sender != chat:
+        return f"the newest message is your own ({sender!r}), not theirs"
+    return ""
 
 
 def _queue_id(chat: str) -> str:

@@ -65,7 +65,8 @@ jq -c 'select(.actions|length>0) | {at, actions}' .wa-agent/daemon.log | tail -2
 |---|---|---|
 | `blocked: not logged in` | the session is gone | `uv run wa-login` and scan |
 | `needs_attention: ambiguous` | a command was not an exact `OK`/`NO`/`EDIT` | retype it as a whole message |
-| `context_unavailable` | `workspace-mcp` was not connected; **no tokens were spent** | usually transient; if it persists see below |
+| `context_unavailable` | `workspace-mcp` unreachable, OR its tools failed auth; **no draft is published** | if it says *a tool call failed*, re-authorise Google — see below |
+| `not_queued` | the newest message is your own, or has no text (a photo) | nothing to answer; it re-queues when they write again |
 | `stalled` | a reply failed to draft six times running | check MCP; the message is still queued |
 | `edit_refused` | the 5-revision cap was reached | redraft in an interactive session |
 | `sent: {ok: false}` | a pre-send check refused; the self-chat says why | usually an edited source message |
@@ -399,6 +400,24 @@ uvx workspace-mcp --read-only --tools gmail calendar --help
 
 Google OAuth tokens live in `~/.google_workspace_mcp/credentials/`. Deleting
 them forces a fresh consent flow.
+
+**A connected server can still be unusable.** `status=connected` only means the
+process answered; if the Google token has expired or been revoked, every call
+comes back `Google Authentication Needed` while the handshake looks perfect.
+That used to produce a draft built on nothing. The run is now killed on the
+first such tool result and logged as
+`context_unavailable: a tool call failed: authentication needed`.
+
+To fix it, re-run the consent flow:
+
+```bash
+rm -rf ~/.google_workspace_mcp/credentials
+```
+
+then start any interactive Claude session in this directory and call a
+calendar tool once — it will print an authorisation URL to open. Until that is
+done, replies stay queued and nothing is drafted, which is the intended
+behaviour.
 
 ### The daemon is running but doing nothing
 
