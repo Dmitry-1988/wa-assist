@@ -713,11 +713,17 @@ def _report_stalled_items(page, config: Config, result: dict) -> None:
             continue
         if item.stalled_notified or item.attempts < CONTEXT_STALL_ATTEMPTS:
             continue
+        # Name the command. Google expires this project's token weekly while
+        # the app is unverified, so the overwhelmingly likely cause is that,
+        # and a notice that only reports the symptom leaves the user to
+        # rediscover the cure every time.
         note = (
             f"⚠️ I cannot draft a reply to {item.chat}: Gmail and Calendar have "
             f"been unreachable for {item.attempts} attempts, and I will not "
-            f"answer from memory.\n\nThe message is still queued and I will "
-            f"draft it as soon as access returns. Nothing has been sent."
+            f"answer from memory.\n\nMost likely Google's weekly token expiry. "
+            f"To fix it:\n  uv run wa-agent reauth\n\nThe message is still "
+            f"queued and I will draft it as soon as access returns. Nothing "
+            f"has been sent."
         )
         try:
             post_note(page, note)

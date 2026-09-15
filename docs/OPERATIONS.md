@@ -210,7 +210,11 @@ consent screen did not change it. Until that is understood, treat Gmail and
 Calendar as needing a manual re-consent roughly weekly — see
 [GOOGLE_SETUP.md](GOOGLE_SETUP.md) step 5.
 
-Re-authorising is a race unless you are careful: the callback lands on
+Fix it with `uv run wa-agent reauth` — one command, one click. It is
+idempotent, so running it when nothing is wrong just reports that access
+works.
+
+Re-authorising by hand is a race unless you are careful: the callback lands on
 `localhost:8000` and needs a server alive at that instant.
 `ERR_CONNECTION_REFUSED` means there was not one, `(deleted_client)` means
 there was the wrong one. GOOGLE_SETUP.md traps 4 and 5.

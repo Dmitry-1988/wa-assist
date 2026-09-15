@@ -87,6 +87,12 @@ def main(argv: list[str] | None = None) -> int:
     p_drop.add_argument("--draft-id", required=True)
     p_drop.add_argument("--reason", default="superseded")
 
+    p_reauth = sub.add_parser("reauth",
+                              help="re-authorise Google (weekly, while the app "
+                                   "is unverified); one command and one click")
+    p_reauth.add_argument("--force", action="store_true",
+                          help="consent again even if access already works")
+
     sub.add_parser("digest-catchup",
                    help="mark everything now in the summarize groups as already "
                         "digested, so only new messages are reported from here")
@@ -158,6 +164,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "drop":
         emit(retire_draft(config, args.draft_id, args.reason))
         return 0
+
+    if args.cmd == "reauth":
+        from .reauth import run_reauth
+
+        outcome = run_reauth(config, force=args.force)
+        emit(outcome)
+        return 0 if outcome.get("ok") else 1
 
     if args.cmd == "digest-catchup":
         # Recovery. `advance` used to assign the last captured id, so a capture
