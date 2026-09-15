@@ -45,22 +45,37 @@ pages to point at.
 
 ### Then publish it
 
-**Audience → Publish app**, moving it out of *Testing*.
+**Audience → Publish app**, moving it out of *Testing*. You will be told the
+app becomes available to any Google account. That is fine: nobody else has your
+client secret, and the credentials live only on your machine. Publishing does
+not require verification — verification is about removing the browser warning
+and raising user caps, neither of which matters for one person.
 
-> **Trap 2 — an app left in Testing expires its refresh token after exactly
-> seven days.** Not the access token, which is meant to expire hourly and is
-> renewed automatically: the *refresh* token, the thing that makes renewal
-> possible. Every seven days the daemon silently loses Gmail and Calendar and
-> you re-authorise by hand. It is not obvious, because everything works
-> perfectly for six days.
-
-You will be told the app becomes available to any Google account. That is fine.
-Nobody else has your client secret, and the credentials live only on your
-machine.
-
-Publishing does **not** require verification here. Verification is about
-removing the browser warning and raising user caps, neither of which matters
-for one person.
+> **Trap 2 — plan for a weekly re-authorisation, because publishing may not
+> prevent it.** Google expires the *refresh* token of an app in Testing after
+> about seven days. Not the access token, which is meant to expire hourly and
+> renews itself: the refresh token, the thing that makes renewal possible.
+> Everything works perfectly for six days and then Gmail and Calendar are
+> gone.
+>
+> Publishing is supposed to lift that. **Measured here, it did not.** Two
+> tokens, one issued before publishing and one after, on an unverified app
+> requesting `gmail.readonly`:
+>
+> | issued | first failure | lifetime |
+> |---|---|---|
+> | 31 Aug 14:25 | 7 Sep 10:00 | 6d 19h 35m |
+> | 8 Sep 13:41 | 15 Sep 09:55 | 6d 20h 14m |
+>
+> Thirty-nine minutes apart. So publish anyway — it costs nothing and removes
+> the documented cause — but expect to re-run step 5 weekly until it is
+> verified otherwise. `gmail.readonly` is a restricted scope, and Google may
+> apply the same expiry to unverified apps in production; full verification
+> means a security assessment, which is not proportionate for one user.
+>
+> The daemon handles this correctly rather than silently: it refuses to draft,
+> logs `context_unavailable: a tool call failed: Authentication Needed`, keeps
+> the message queued, and tells you in your self-chat after several attempts.
 
 ---
 

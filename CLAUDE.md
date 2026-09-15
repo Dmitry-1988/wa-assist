@@ -36,7 +36,10 @@ The answer schema still **rejects** `chat`/`recipient`/`to`/`send`/`live`/`draft
   diagnosing: a tick that dies early logs empty `actions` and looks idle.
 - `docs/GOOGLE_SETUP.md` — the OAuth client, and the four traps that cost a
   day each (Web application not Desktop; the exact redirect URI; publish the
-  consent screen or Google expires the refresh token every 7 days; no logo).
+  consent screen; no logo). NOTE: Google expires the refresh token after ~7
+  days and publishing did NOT stop it — measured twice, 6d19h35m and 6d20h14m.
+  Expect a weekly re-authorisation; the daemon refuses to draft meanwhile and
+  says so, which is the behaviour we want.
 - `docs/BACKENDS.md` — sketch only, nothing implemented, for running the model
   on something other than Claude.
 - `SECURITY.md` — the boundary, and the disclosed privilege-escalation finding.
