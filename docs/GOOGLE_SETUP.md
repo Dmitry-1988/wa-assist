@@ -200,6 +200,39 @@ That file contains a refresh token: treat it like a password.
 
 ---
 
+## The weekly re-authorisation
+
+`gmail.readonly` is a **restricted** scope, so Google requires verification —
+the console says so outright the moment you declare it. Verification means a
+security assessment, which is not proportionate for one user, and an
+unverified app's refresh token is expired after about a week. Measured here:
+
+    6d 19h 35m   then   6d 20h 14m
+
+Publishing the consent screen does not prevent it; verification is the gate,
+not publishing.
+
+Gmail stays anyway. It answers questions nothing else can — what a payment
+confirmation said, how much the vet cost — and a calendar cannot. So this is a
+weekly chore, reduced to one command:
+
+```bash
+uv run wa-agent reauth
+```
+
+It checks whether access already works and does nothing if so; stops any stale
+server holding port 8000 (and refuses if something that is **not**
+workspace-mcp is on it, since the callback would land there); keeps a server
+alive for the whole flow; prints the authorisation URL immediately in case no
+browser opened; waits for the credential file to actually change; and then
+verifies **both** Calendar and Gmail, because consent proves a grant and not
+that the tools work.
+
+Pass `--force` to consent again even when access is fine.
+
+You do not need to remember any of this: when the token dies, the daemon stops
+drafting and posts a note in your self-chat naming the command.
+
 ## Checking it works
 
 ```bash

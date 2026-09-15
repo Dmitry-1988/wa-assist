@@ -193,10 +193,10 @@ The answer schema still **rejects** `chat`/`recipient`/`to`/`send`/`live`/`draft
 uv run wa-login                 # QR scan; rotates if past the 14-day policy
 uv run wa-login --status        # checks WhatsApp itself (--quick = record only)
 uv run wa-agent list|allow|deny # allowlist (--mode reply|summarize)
-uv run wa-agent unread|chats|pending|drop|read|digest-catchup
+uv run wa-agent unread|chats|pending|drop|read|digest-catchup|reauth
 uv run wa-agent propose|poll|send [--live]
 uv run wa-agent tick            # one unattended cycle (the daemon runs this)
-uv run pytest                   # 670 tests; -m "not browser" for the fast ones
+uv run pytest                   # 695 tests; -m "not browser" for the fast ones
 ```
 
 Self-chat commands: `OK #XXX`, `NO #XXX`, `EDIT #XXX: …`, `GROUPSUM`.
