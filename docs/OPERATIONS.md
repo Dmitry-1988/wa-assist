@@ -203,6 +203,30 @@ uv run wa-agent --visible tick
 
 ## Known limitations
 
+### Google access needs re-authorising about weekly
+
+Measured twice on this install: 6d 19h 35m and 6d 20h 14m. Publishing the
+consent screen did not change it. Until that is understood, treat Gmail and
+Calendar as needing a manual re-consent roughly weekly — see
+[GOOGLE_SETUP.md](GOOGLE_SETUP.md) step 5.
+
+You will know because the daemon stops drafting and says so: the log fills with
+`context_unavailable: a tool call failed: Authentication Needed` and the
+self-chat gets a note after several attempts. Nothing is drafted from memory,
+and the queued message survives.
+
+### `Page.goto` timeouts come in bursts
+
+Loading web.whatsapp.com times out at 30s sometimes, and not evenly: 295
+occurrences on 10 Sep and 275 on 12 Sep against roughly 590 ticks each of those
+days, versus 1 to 31 on the surrounding days. The daemon logs the error, does
+nothing that tick, and recovers on the next; digests and drafts on those days
+still went out.
+
+The cause is not established. Candidates are the machine sleeping, a network
+drop, and WhatsApp throttling repeated loads. Worth investigating only if a
+burst coincides with something actually being lost, which so far it has not.
+
 These are current behaviour, not bugs with a fix pending. They are listed so a
 surprise is a recognised one.
 
