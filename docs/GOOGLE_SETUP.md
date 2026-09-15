@@ -167,6 +167,34 @@ Go to …** — expected, and permanent for an unverified app — and approve.
 >   --allowedTools "mcp__workspace-mcp__list_calendars" --max-turns 30
 > ```
 
+> **Trap 5 — `ERR_CONNECTION_REFUSED` on the callback means nothing was
+> listening when Google redirected back.** The URL bar will show
+> `localhost:8000/oauth2callback?state=…&code=4/0ATs…`, so the consent
+> succeeded and the authorisation code is right there; there was simply no
+> server to hand it to. `claude -p` exits the moment the model stops talking,
+> and its MCP server dies with it — asking the model to "wait 20 seconds and
+> retry" does not make it wait, it makes it finish. Seen 2026-09-15: the tab
+> opened, consent went through, and the door had already closed.
+>
+> Distinguish the two callback failures by what the page says:
+>
+> | page | meaning |
+> |---|---|
+> | `ERR_CONNECTION_REFUSED` | nothing listening — the server exited too early |
+> | `(deleted_client)` / `invalid_client` | something IS listening, with the wrong credentials |
+>
+> The retry-in-a-loop invocation above fixes the first only because
+> `Bash(sleep:*)` lets the model genuinely block. Repeated login tabs opening
+> by themselves are that loop minting a fresh state each attempt; harmless, and
+> it succeeds as soon as one attempt's server is alive when you finish
+> consenting. If you would rather not race it, run the server standalone
+> first so it cannot exit underneath you:
+>
+> ```bash
+> WORKSPACE_MCP_PORT=8000 uvx workspace-mcp@1.26.0 --read-only \
+>   --tools gmail calendar --transport streamable-http
+> ```
+
 Credentials land in `~/.google_workspace_mcp/credentials/<you>@gmail.com.json`.
 That file contains a refresh token: treat it like a password.
 
