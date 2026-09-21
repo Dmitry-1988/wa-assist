@@ -196,7 +196,7 @@ uv run wa-agent list|allow|deny # allowlist (--mode reply|summarize)
 uv run wa-agent unread|chats|pending|drop|read|digest-catchup|reauth
 uv run wa-agent propose|poll|send [--live]
 uv run wa-agent tick            # one unattended cycle (the daemon runs this)
-uv run pytest                   # 695 tests; -m "not browser" for the fast ones
+uv run pytest                   # 713 tests; -m "not browser" for the fast ones
 ```
 
 Self-chat commands: `OK #XXX`, `NO #XXX`, `EDIT #XXX: …`, `GROUPSUM`.
@@ -323,6 +323,23 @@ warns; set `WA_ENFORCE_ROTATION=1` to make it stop instead.
 It was 24h while the drafter could still reach the filesystem — a prompt
 injection could `Write` into `src/wa_session/` and copy the profile out. That
 path is closed.
+
+`log_out` returns `LogoutResult(ok, step)`, and its two failures are NOT
+equally serious. Stopping at `menu` or `logout item` means Log out was never
+pressed, so the device is certainly still linked and the loud warning is right.
+Stopping at `confirmation` means it WAS pressed and only the QR never appeared
+— on 2026-09-21 that was reported as a flat failure, sent the user to check
+Linked Devices, and there was nothing to remove: the unlink had worked. A
+warning that is usually wrong is one people stop reading, and this one guards
+the only step in rotation that revokes anything.
+
+The confirmation polls `detect` for AWAITING_QR. It must not go back to giving
+each of the four `LOGGED_OUT` selectors a single `wait_for`: logging out
+reloads the page, and a `wait_for` spanning that navigation raises instead of
+waiting, so all four can fail in seconds and report a failed unlink that
+succeeded. **Do not substitute `wait_for_state`** either — it returns on the
+first known state, and the chat list is still up for a moment after the click,
+so it answers LOGGED_IN and looks like failure.
 
 **Nothing here revokes a session.** `log_out()` has ONE caller, `wa-login`.
 The daemon never unlinks, so passing the deadline changes nothing and

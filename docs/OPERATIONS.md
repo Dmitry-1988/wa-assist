@@ -325,6 +325,21 @@ of this document did too.
 | `WA_ENFORCE_ROTATION=1` | tick reports `blocked`, stops | **yes** |
 | running `wa-login` | unlinks, wipes, re-links | no |
 
+### What the two logout messages mean
+
+`wa-login --reset` prints one of three things, and they differ in how much they
+should worry you:
+
+| message | what happened | what to do |
+|---|---|---|
+| `device unlinked; wiping profile` | confirmed | nothing |
+| `logout was performed but not confirmed` | Log out was pressed, the QR never appeared | probably fine; check Linked Devices when convenient |
+| `logout did NOT happen (stopped at: …)` | never pressed — menu or menu item not found | **the device is still linked**; remove it on your phone |
+
+The middle one used to be reported as an outright failure. On 2026-09-21 it
+sent the user to check Linked Devices and there was nothing to remove, because
+the unlink had in fact worked.
+
 `log_out()` has exactly one caller — `wa-login`. The daemon never unlinks. So
 `WA_ENFORCE_ROTATION` stops your agent while leaving the device linked and the
 session valid: it costs availability and reduces exposure by nothing. It is a

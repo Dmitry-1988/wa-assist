@@ -9,7 +9,7 @@ import sys
 from .agent import agent_dir
 from .config import WHATSAPP_URL, Config, load_config
 from .lock import Busy, profile_lock
-from .logout import log_out
+from .logout import LogoutResult, log_out
 from .page_state import PageState, wait_for_login, wait_for_state
 from .digest import render
 from .export import run_export
@@ -77,7 +77,9 @@ def _rotate(config: Config) -> None:
         return
 
     log("logging out via WhatsApp Web UI...")
-    unlinked = False
+    # Not a bare False: the failure branches read `.step`, and an exception
+    # here must not turn a reporting path into an AttributeError.
+    unlinked = LogoutResult(False, "browser did not start")
     try:
         # Headed on purpose, though it no longer has to be: this runs inside
         # an interactive rotation where the user is about to scan a QR, and a
@@ -92,10 +94,20 @@ def _rotate(config: Config) -> None:
 
     if unlinked:
         log("device unlinked; wiping profile")
+    elif unlinked.clicked:
+        # Log out WAS pressed; only the proof is missing. Saying "ACTION
+        # NEEDED" here cries wolf -- on 2026-09-21 it sent the user to check
+        # Linked Devices and there was nothing to remove -- and a warning that
+        # is usually wrong is one people stop reading.
+        log(f"logout was performed but not confirmed ({unlinked.step}); "
+            "wiping profile anyway")
+        log("It has most likely worked. To be certain, check WhatsApp ->")
+        log("Linked Devices on your phone and remove any stale entry.")
     else:
-        log("could not confirm logout through the UI; wiping profile anyway")
-        log("ACTION NEEDED: on your phone, open WhatsApp -> Linked Devices and")
-        log("remove any stale entry for this computer.")
+        log(f"logout did NOT happen (stopped at: {unlinked.step}); "
+            "wiping profile anyway")
+        log("ACTION NEEDED: this device is almost certainly STILL LINKED.")
+        log("On your phone: WhatsApp -> Linked Devices -> remove this computer.")
 
     wipe_profile(config)
     clear_state(config)
