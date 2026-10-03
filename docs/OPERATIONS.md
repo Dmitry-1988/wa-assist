@@ -65,9 +65,10 @@ jq -c 'select(.actions|length>0) | {at, actions}' .wa-agent/daemon.log | tail -2
 |---|---|---|
 | `blocked: not logged in` | the session is gone | `uv run wa-login` and scan |
 | `needs_attention: ambiguous` | a command was not an exact `OK`/`NO`/`EDIT` | retype it as a whole message |
-| `context_unavailable` | `workspace-mcp` unreachable, OR its tools failed auth; **no draft is published** | if it says *a tool call failed*, re-authorise Google — see below |
+| `context_unavailable` | `workspace-mcp` unreachable, OR its tools failed auth; **no draft is published** | read the rest of the value. *a tool call failed* → re-authorise Google (below). `status=failed` → the server's command cannot be run. `status=pending` after retries → see below |
+| `handshake_attempts` | the server was still connecting and the run was spawned again; >1 means the race was lost at least once | nothing if the run then succeeded; if it keeps appearing, the server is starting too slowly |
 | `not_queued` | the newest message is your own, or has no text (a photo) | nothing to answer; it re-queues when they write again |
-| `stalled` | a reply failed to draft six times running | check MCP; the message is still queued |
+| `stalled` | a reply failed to draft six times running; repeats ~6h apart while it lasts (`notice` counts them, `attempts` how long) | read the note — it quotes the actual reason; the message is still queued |
 | `edit_refused` | the 5-revision cap was reached | redraft in an interactive session |
 | `sent: {ok: false}` | a pre-send check refused; the self-chat says why | usually an edited source message |
 | `session_overdue_hours` | past the rotation policy | `uv run wa-login --reset` |
@@ -447,12 +448,49 @@ hunting anything subtler.
 
 ### `workspace-mcp` keeps failing to connect
 
+**Read the status word — the three mean different things.**
+
+| value | meaning | what fixes it |
+|---|---|---|
+| `status=failed` | the server's command could not be run at all | `uvx` missing from the daemon's PATH, or the pinned version gone from the index |
+| `status=pending` | it had not finished connecting when the CLI announced itself | retried automatically (`handshake_attempts`); if it persists, the start is too slow — see below |
+| `connected` + *a tool call failed* | the process answered but Google auth is dead | `uv run wa-agent reauth` |
+
 The drafting run is killed at the handshake, before any tokens are spent, and
 the message stays queued. Check the server starts by hand:
 
 ```bash
 uvx workspace-mcp --read-only --tools gmail calendar --help
 ```
+
+**If `status=pending` survives the retries, suspect Claude before the MCP
+server.** An unauthenticated CLI reports its servers as still connecting and
+then exits 1, so this message is often not about MCP at all. One command
+settles it:
+
+```bash
+# strict with no --mcp-config starts ZERO servers, so this tests Claude alone
+claude -p ok --strict-mcp-config
+```
+
+Fails → it is the CLI or the subscription: run `claude` and `/login`. Succeeds →
+it really is Gmail/Calendar access, so go to `reauth` above. The daemon runs
+this itself before it accuses anything, and logs the answer as `cli_check`.
+
+**The fastest check of all is a toolless run.** In `daemon.log`, compare the
+drafter with the summariser (`queue_id` starting `sum-`): the summariser gets
+zero tools and no MCP, so if it is failing too, the fault is underneath both.
+
+This cost three days of silence from 2026-09-30 — 1821 refusals, with Gmail and
+Calendar reachable throughout and the summariser failing `returncode: 1` beside
+them. Four things that look like proof and are not:
+
+- *the credentials are fresh* — the file's mtime tracks refreshes, not consent
+- *it works when I run it by hand* — a logged-in terminal hides exactly this
+- *the server connects when I replicate the daemon's environment* — it does, and
+  it clears nothing
+- *`status=pending` means the server is slow* — `uvx` off the PATH reports
+  `failed`, never `pending`; a cold server answers in about a second
 
 Google OAuth tokens live in `~/.google_workspace_mcp/credentials/`. Deleting
 them forces a fresh consent flow. The setup, and the four ways it goes wrong,

@@ -61,6 +61,15 @@ class QueueItem:
     # visible instead of silently swallowing the message.
     attempts: int = 0
     stalled_notified: bool = False
+    # How many times the self-chat has been told about this outage, and what
+    # the last refusal actually said. One latched boolean was not enough: it
+    # meant a three-day outage was announced exactly once and then went quiet
+    # (2026-09-30 to 10-03, 1821 refusals, one notice). The reason is kept
+    # because the notice used to name Google's token expiry as the likely
+    # cause whatever had happened -- and that time it was wrong, so the
+    # suggested cure was wrong too.
+    stall_notices: int = 0
+    last_context_error: str = ""
     # Summary items only: chats whose digest is knowingly incomplete, as
     # {"chat": name, "reason": why}. The daemon writes this and the daemon
     # reads it back when posting -- it is never shown to the summariser, which
@@ -84,6 +93,8 @@ class QueueItem:
             created_at=data.get("created_at", ""),
             attempts=int(data.get("attempts", 0)),
             stalled_notified=bool(data.get("stalled_notified", False)),
+            stall_notices=int(data.get("stall_notices", 0)),
+            last_context_error=data.get("last_context_error", ""),
             gaps=data.get("gaps", []),
         )
 

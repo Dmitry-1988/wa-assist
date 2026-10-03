@@ -60,7 +60,19 @@ The answer schema still **rejects** `chat`/`recipient`/`to`/`send`/`live`/`draft
 - A drafting run whose `workspace-mcp` handshake is not `connected` is killed at
   the init message and returns `ok: False`. The queue item stays for a retry —
   a toolless run exits 0 and would otherwise publish a confident reply built on
-  nothing. After `CONTEXT_STALL_ATTEMPTS` failures the self-chat says so.
+  nothing. After `CONTEXT_STALL_ATTEMPTS` failures the self-chat says so, and
+  **keeps** saying so every `STALL_RENOTIFY_ATTEMPTS` (~6h) until it is fixed:
+  a latched flag announced a three-day outage exactly once.
+- **`pending` is a race; `failed` is a verdict.** A handshake in
+  `RETRYABLE_STATUSES` (`pending`, `connecting`) means the server had not
+  finished starting when the CLI announced itself, so `run_drafter` spawns
+  again — up to `HANDSHAKE_RETRIES`, logged as `handshake_attempts`. The init
+  event is emitted once per process, so the handshake cannot be re-read any
+  other way, and the run is killed AT init, so a retry is free. Nothing
+  pre-warms the server deliberately: that would mean naming its command here, a
+  second copy of the pin that lives in the MCP registration. Do NOT extend the
+  retry to `failed` (command not found), `needs-auth`, a missing tool, or a
+  tool-call auth failure — none improve by waiting, and auth is global.
 - **A rejected draft is a decision, not a dropped message.** `NO #XXX` retires
   the draft and nothing re-queues the source — the chat is already read, so it
   will not resurface as unread. That is intended: the user re-opens the topic by
@@ -196,7 +208,7 @@ uv run wa-agent list|allow|deny # allowlist (--mode reply|summarize)
 uv run wa-agent unread|chats|pending|drop|read|digest-catchup|reauth
 uv run wa-agent propose|poll|send [--live]
 uv run wa-agent tick            # one unattended cycle (the daemon runs this)
-uv run pytest                   # 713 tests; -m "not browser" for the fast ones
+uv run pytest                   # 746 tests; -m "not browser" for the fast ones
 ```
 
 Self-chat commands: `OK #XXX`, `NO #XXX`, `EDIT #XXX: …`, `GROUPSUM`.
@@ -289,6 +301,29 @@ Self-chat commands: `OK #XXX`, `NO #XXX`, `EDIT #XXX: …`, `GROUPSUM`.
 - The drafter's MCP status is only visible with `--output-format stream-json
   --verbose`; the plain `json` result carries no `mcp_servers`. The init line is
   not reliably first — a `rate_limit_event` can precede it.
+- **`status=pending` can be a SYMPTOM of a dead Claude subscription — check
+  the toolless runs first.** 2026-09-30 to 10-03: three days, no replies
+  drafted at all, every run refused with `workspace-mcp status=pending` and one
+  queue item retried 1821 times. The MCP server was not the problem and
+  neither was Google: `list_calendars` answered on 10-03 with the credentials
+  untouched, and probing the CLI returned `status: "connected"`. An
+  unauthenticated CLI announces its MCP servers as still connecting and then
+  exits 1 — so `mcp_health` fires on the symptom and kills the run before the
+  real error is visible, and every cure it suggests is for the wrong layer.
+  **The tell was in the log the whole time:** the SUMMARISER, which gets zero
+  tools and no MCP, was failing identically — 617 runs, `returncode: 1`,
+  `stderr: ""`. A toolless run cannot fail for want of a tool, so when both
+  are failing the common factor is `claude -p` itself. One command separates
+  them, and it is what `drafter.cli_healthy` runs:
+  `claude -p ok --strict-mcp-config` (strict with no `--mcp-config` starts
+  zero servers). Keep the measurements that ruled out everything else, because
+  each looked promising: `uvx` off the PATH reports `failed`, NOT `pending`; a
+  cold server answers `initialize` in 1.12s; the plist PATH already contains
+  `.local/bin` and `/opt/homebrew/bin`; and the daemon's exact spawn
+  environment, replicated by hand, connects fine — **a clean manual
+  reproduction does not clear the daemon.** I first concluded this was a cold
+  start fixed by a warmed uv cache; it was not, and the user supplied the
+  actual cause.
 
 ## State
 
