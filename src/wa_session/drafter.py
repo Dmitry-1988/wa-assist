@@ -1,14 +1,19 @@
 """Invoking the headless drafting run.
 
 The tool set here is the security boundary, not a suggestion. The drafter gets
-Read, Write and read-only MCP -- and no Bash. Without a shell it cannot invoke
-`wa-agent`, cannot drive Playwright, and therefore cannot post an approval into
-the self-chat or send anything. Its only outward channel is one JSON file whose
-schema refuses to carry a recipient.
+read-only MCP and NOTHING else -- no Bash, no Read, no Write, no Edit, no
+Agent. Without a shell it cannot invoke `wa-agent`, cannot drive Playwright,
+and therefore cannot post an approval into the self-chat or send anything. It
+has no filesystem at all: the queue item is inlined into the prompt and the
+answer comes back as the run's final message, which the DAEMON validates and
+writes. Its only outward channel is that one reply, whose schema refuses to
+carry a recipient.
 
-Edit and Agent are withheld too: Edit would let it rewrite the daemon's own
-code, which the daemon then executes; Agent could spawn a subagent with a wider
-tool set and undo the whole arrangement.
+Read and Write were granted until 2026-09-02 and reached src/wa_session/, the
+package the daemon imports and executes on its next tick -- a live path from
+"a stranger messaged you" to code running as the user. Edit and Agent are
+withheld for the same reason: Edit rewrites the daemon's own code, and Agent
+could spawn a subagent with a wider tool set and undo the whole arrangement.
 """
 
 from __future__ import annotations
@@ -19,6 +24,7 @@ import shlex
 import shutil
 import subprocess
 import threading
+import time
 from pathlib import Path
 
 from .config import Config
@@ -104,6 +110,82 @@ def mcp_health(init_event: dict) -> tuple[bool, str]:
         short = ", ".join(t.rsplit("__", 1)[-1] for t in missing)
         return False, f"{MCP_SERVER} connected but not offering {short}"
     return True, "connected"
+
+
+# Statuses that may still reach `connected` with nobody intervening. The init
+# event is emitted once per process, so the only way to re-read the handshake
+# is to spawn again -- and since the run is killed AT init, before a token is
+# spent, another spawn is free.
+#
+# `pending` means the server had not finished connecting when the CLI announced
+# itself. That is a race, not a verdict, and treating it as a verdict cost three
+# days of silence: one queue item was refused 1821 times between 2026-09-30 and
+# 2026-10-03 while Gmail and Calendar were in fact fine -- verified by calling
+# them. Measured the same day, a cold `uvx workspace-mcp` answers `initialize`
+# in 1.12s, which is the whole margin being lost.
+#
+# The first spawn also does the resolving, so the retry runs warm where the
+# first ran cold: the retry IS the pre-warm. That is deliberately why nothing
+# here starts the server itself -- doing so would mean naming the server's
+# command in this file, a second copy of a version pin that lives in the MCP
+# registration, and the two would drift apart silently.
+#
+# `failed` is excluded on purpose: that is what a server whose command cannot be
+# found reports -- verified 2026-10-03 by taking uvx off the PATH -- and no
+# number of retries conjures a missing binary. Nor is `needs-auth` retried:
+# auth is global and waiting changes nothing a human must do.
+RETRYABLE_STATUSES = ("pending", "connecting")
+HANDSHAKE_RETRIES = 2
+HANDSHAKE_RETRY_DELAY_S = 3.0
+
+
+# Is the CLI itself able to run at all? `--strict-mcp-config` with no
+# `--mcp-config` starts ZERO servers, so this asks about Claude and nothing
+# else -- which is the question `mcp_health` structurally cannot answer.
+#
+# It exists because of 2026-09-30 to 10-03. Every drafting run refused with
+# `workspace-mcp status=pending` and the whole diagnosis went looking at the
+# MCP server, Google's tokens and the uv cache. The real cause was the Claude
+# subscription: an unauthenticated CLI emits its init event with servers still
+# unconnected and then exits 1, so the handshake gate fired on the symptom and
+# killed the run before the actual error could be seen. The tell was in the log
+# the whole time and nobody was reading it -- the SUMMARISER, which gets zero
+# tools and no MCP, was failing identically (617 runs, `returncode: 1`,
+# `stderr: ""`), and a toolless run cannot fail for want of a tool.
+CLI_CHECK_TIMEOUT_S = 90.0
+
+
+def cli_healthy(timeout_s: float = CLI_CHECK_TIMEOUT_S) -> tuple[bool, str]:
+    """Whether `claude -p` runs at all, with no MCP server involved."""
+    binary = claude_binary()
+    if binary is None:
+        return False, "the claude CLI was not found on PATH"
+    try:
+        proc = subprocess.run(
+            [binary, "-p", "ok", "--max-turns", "1", "--strict-mcp-config",
+             "--disallowedTools", *DISALLOWED_TOOLS],
+            capture_output=True, text=True, timeout=timeout_s)
+    except subprocess.TimeoutExpired:
+        return False, "the claude CLI did not answer a trivial prompt in time"
+    except OSError as exc:
+        return False, f"the claude CLI could not be started: {exc}"
+    if proc.returncode != 0:
+        # The CLI says little on stderr when it refuses -- measured empty
+        # across 617 runs -- so the exit code carries the news.
+        detail = (proc.stderr or proc.stdout or "").strip()[:200]
+        return False, (f"the claude CLI itself is failing (exit "
+                       f"{proc.returncode}){': ' + detail if detail else ''}")
+    return True, "the claude CLI runs"
+
+
+def handshake_retryable(detail: str) -> bool:
+    """Is this handshake refusal a race worth one more spawn?
+
+    Matched exactly rather than by substring: a tool-call auth failure can
+    mention one of these words in prose, and retrying that would pay twice for
+    the same refusal.
+    """
+    return detail in tuple(f"{MCP_SERVER} status={s}" for s in RETRYABLE_STATUSES)
 
 
 # A tool that is offered but cannot be used is not context. workspace-mcp
@@ -342,6 +424,10 @@ def run_drafter(item: QueueItem, config: Config, timeout_s: int = 300) -> dict:
     reachable. `ok` is False in that case and no outbox file is left behind, so
     the caller keeps the queue item and retries on a later tick instead of
     publishing a reply that had nothing to check against.
+
+    A handshake that merely has not finished connecting yet is retried here,
+    within this call -- see `RETRYABLE_STATUSES` for why that is not a
+    weakening of the gate.
     """
     binary = claude_binary()
     if binary is None:
@@ -364,6 +450,26 @@ def run_drafter(item: QueueItem, config: Config, timeout_s: int = 300) -> dict:
         "--disallowedTools", *DISALLOWED_TOOLS,
     ]
     summary = {"queue_id": item.queue_id, "cmd": shlex.join(cmd[:2]) + " …"}
+
+    # Spawn again while the only complaint is that the server had not finished
+    # connecting. Anything else -- a good run, a definitive refusal, an auth
+    # failure -- is returned as it stands.
+    for attempt in range(1, HANDSHAKE_RETRIES + 2):
+        outcome = _attempt_draft(cmd, summary, item, config, timeout_s)
+        if not handshake_retryable(outcome.get("context_unavailable", "")):
+            break
+        if attempt <= HANDSHAKE_RETRIES:
+            time.sleep(HANDSHAKE_RETRY_DELAY_S)
+    if attempt > 1:
+        # Record how many spawns it took. A race that is quietly recovered from
+        # every tick is still a race, and without this it reads as a clean run.
+        outcome = {**outcome, "handshake_attempts": attempt}
+    return outcome
+
+
+def _attempt_draft(cmd: list[str], summary: dict, item: QueueItem,
+                   config: Config, timeout_s: int) -> dict:
+    """One spawn of the drafting run. See `run_drafter` for the retry policy."""
     try:
         proc = subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
@@ -422,7 +528,13 @@ def run_drafter(item: QueueItem, config: Config, timeout_s: int = 300) -> dict:
         # Killed at the handshake, before the model ran. Clear any outbox file
         # so a later tick cannot mistake a dead run's leavings for a draft.
         (outbox_dir(config) / f"{item.queue_id}.json").unlink(missing_ok=True)
-        return {**summary, "ok": False, "context_unavailable": unusable}
+        # Report the exit status too. This path used to return the handshake
+        # verdict alone, which is why 1821 refusals between 2026-09-30 and
+        # 10-03 said nothing about the CLI exiting 1 underneath them: a
+        # negative code is our own kill, a positive one is the CLI dying on
+        # its own and means the handshake was a symptom, not the cause.
+        return {**summary, "ok": False, "context_unavailable": unusable,
+                "returncode": proc.returncode, "stderr": stderr_tail}
     if timed_out.is_set():
         return {**summary, "ok": False, "error": "drafter timed out"}
     if not handshake:

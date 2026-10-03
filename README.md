@@ -278,7 +278,7 @@ uv run wa-agent list|allow|deny|chats|unread|pending|drop|read
 uv run wa-agent digest-catchup       # treat everything now as already digested
 uv run wa-agent reauth               # re-authorise Google (weekly, see GOOGLE_SETUP)
 uv run wa-agent tick                  # one cycle by hand
-uv run pytest                         # 713 tests
+uv run pytest                         # 746 tests
 uv run pytest -m "not browser"        # the fast subset
 ```
 

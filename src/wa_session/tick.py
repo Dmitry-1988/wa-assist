@@ -38,7 +38,7 @@ from .allowlist import Allowlist
 from .approval import Decision, Journal, is_groupsum, latinize
 from .config import WHATSAPP_URL, Config, load_config
 from .interstitials import dismiss
-from .drafter import run_drafter, run_summarizer
+from .drafter import cli_healthy, run_drafter, run_summarizer
 from .lock import Busy, profile_lock
 from .pipeline import (
     ContractError,
@@ -66,9 +66,15 @@ from .watermarks import advance, read_reported, unseen
 PAGE_READY_TIMEOUT_S = 30.0
 
 # Ticks a queue item may fail for want of mail/calendar before the user is told.
-# At a 300s interval this is roughly half an hour of quiet retrying, which
-# covers a transient outage without letting a long one stay invisible.
+# At the daemon's 120s interval this is about twelve minutes of quiet retrying,
+# which covers a transient outage without letting a long one stay invisible.
 CONTEXT_STALL_ATTEMPTS = 6
+
+# And how many further failures between repeats of that notice -- about six
+# hours at 120s. Announcing an outage once and then falling silent is what
+# turned 2026-09-30 into a three-day gap nobody was reminded of; repeating
+# every tick would instead train the user to ignore the self-chat.
+STALL_RENOTIFY_ATTEMPTS = 180
 
 # How far back a SUMMARIZE chat is read. The watermark has to still be inside
 # this window or the digest cannot tell what it has already covered; 15 rows
@@ -252,7 +258,7 @@ def _drafting_phase(config: Config, result: dict) -> bool:
             # ANY failure counts, not just an unreachable MCP: a timing-out or
             # crashing run would otherwise retry for ever, burning a paid run
             # every interval, with nothing ever shown to the user.
-            _count_context_failure(config, item)
+            _count_context_failure(config, item, _why(outcome))
         drafted_now = drafted_now or outcome.get("ok", False)
     return drafted_now
 
@@ -688,51 +694,109 @@ def _post_ready_drafts(page, config: Config, result: dict) -> int:
     return len(result["actions"]) - before
 
 
-def _count_context_failure(config: Config, item: QueueItem) -> None:
+def _why(outcome: dict) -> str:
+    """The reason a drafting run failed, as the self-chat should state it."""
+    for key in ("context_unavailable", "error"):
+        reason = str(outcome.get(key) or "").strip()
+        if reason:
+            return reason
+    return "the drafting run failed without saying why"
+
+
+def _count_context_failure(config: Config, item: QueueItem,
+                           reason: str = "") -> None:
     """Keep the item queued, but count the failure.
 
     The message stays in the queue precisely so a passing outage costs nothing
     but a delay. The counter exists so a long one does not sit here silently.
+    The reason is kept so the notice can state what actually went wrong rather
+    than assume.
     """
     item.attempts = int(item.attempts) + 1
+    if reason:
+        item.last_context_error = reason
     try:
         write_queue_item(config, item)
     except ContractError:
         pass
 
 
+def _stall_note(item: QueueItem, cli_ok: bool = True, cli_detail: str = "") -> str:
+    """What the self-chat is told about an undraftable reply.
+
+    It names the layer that is actually broken. The old notice blamed Google's
+    weekly token expiry whatever had happened, and on 2026-10-03 that was
+    wrong twice over: the handshake said `workspace-mcp status=pending`, but
+    underneath it the Claude CLI itself was failing, so `reauth` would have
+    fixed nothing and Google was never involved. `drafter.cli_healthy` settles
+    which it is before anything is claimed.
+    """
+    reason = item.last_context_error or "Gmail and Calendar were unreachable"
+    repeat = "STILL cannot" if item.stall_notices else "cannot"
+    if not cli_ok:
+        # The CLI cannot run, so the handshake verdict above is a symptom.
+        # Say so plainly, or the next three days go the way the last three did.
+        body = (
+            f"The cause is NOT Google and NOT WhatsApp: {cli_detail}.\n\n"
+            f"The handshake reported `{reason}`, which is a symptom — an "
+            f"unauthenticated CLI reports its MCP servers as still "
+            f"connecting.\n\nTo check and fix:\n"
+            f"  claude -p ok --strict-mcp-config     # fails = the CLI\n"
+            f"  claude  /login                       # then sign in again"
+        )
+    else:
+        body = (
+            f"Last reason: {reason}\n\nThe Claude CLI itself runs, so this is "
+            f"Gmail/Calendar access.\n\nTo look into it:\n"
+            f"  uv run wa-agent reauth     # if it mentions Google auth\n"
+            f"  tail -40 .wa-agent/daemon.log     # otherwise, read the reason"
+        )
+    return (
+        f"⚠️ I {repeat} draft a reply to {item.chat} — {item.attempts} "
+        f"attempts — and I will not answer from memory.\n\n{body}\n\n"
+        f"The message is still queued and I will draft it as soon as access "
+        f"returns. Nothing has been sent."
+    )
+
+
 def _report_stalled_items(page, config: Config, result: dict) -> None:
-    """Say once, in the self-chat, that a reply cannot be drafted.
+    """Say in the self-chat that a reply cannot be drafted, and keep saying it.
 
     Retrying forever with nothing shown is the failure mode this avoids: the
     incoming message has already been marked read, so from the other side it
     looks answered-and-ignored while the queue quietly spins.
+
+    Said once was not enough. A latched flag announced the 2026-09-30 outage on
+    its sixth attempt and then went silent for three days and 1815 further
+    refusals -- the one state where the agent answers nobody is the one state
+    it must not be quiet about. So the threshold moves: each notice pushes the
+    next one STALL_RENOTIFY_ATTEMPTS further out, which is a repeat roughly
+    every six hours at a 120s tick rather than every tick.
     """
+    checked: tuple[bool, str] | None = None
     for item in read_queue(config):
         if item.queue_id.startswith(SUMMARY_PREFIX):
             continue
-        if item.stalled_notified or item.attempts < CONTEXT_STALL_ATTEMPTS:
+        due = CONTEXT_STALL_ATTEMPTS + item.stall_notices * STALL_RENOTIFY_ATTEMPTS
+        if item.attempts < due:
             continue
-        # Name the command. Google expires this project's token weekly while
-        # the app is unverified, so the overwhelmingly likely cause is that,
-        # and a notice that only reports the symptom leaves the user to
-        # rediscover the cure every time.
-        note = (
-            f"⚠️ I cannot draft a reply to {item.chat}: Gmail and Calendar have "
-            f"been unreachable for {item.attempts} attempts, and I will not "
-            f"answer from memory.\n\nMost likely Google's weekly token expiry. "
-            f"To fix it:\n  uv run wa-agent reauth\n\nThe message is still "
-            f"queued and I will draft it as soon as access returns. Nothing "
-            f"has been sent."
-        )
+        # Ask once per tick, and only when about to speak: the answer decides
+        # which layer the note blames, and a wrong cure wasted three days.
+        if checked is None:
+            checked = cli_healthy()
+            result["actions"].append({"cli_check": checked[1]})
         try:
-            post_note(page, note)
+            post_note(page, _stall_note(item, *checked))
         except Exception as exc:
+            # Not counted: an unsent notice must be retried, not forgotten.
             result["actions"].append({"stall_notice_failed": str(exc)})
             continue
         item.stalled_notified = True
+        item.stall_notices = int(item.stall_notices) + 1
         write_queue_item(config, item)
-        result["actions"].append({"stalled": item.queue_id, "chat": item.chat})
+        result["actions"].append({"stalled": item.queue_id, "chat": item.chat,
+                                  "notice": item.stall_notices,
+                                  "attempts": item.attempts})
 
 
 def _rotation_blocks(page, config: Config, result: dict) -> bool:
