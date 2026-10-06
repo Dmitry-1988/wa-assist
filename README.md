@@ -193,6 +193,13 @@ launchctl print gui/$(id -u)/com.example.wa-agent | grep state
 launchd caches the plist at bootstrap, so after editing it you must `bootout`
 and `bootstrap` again.
 
+`state = not running` between ticks is correct — this is a `StartInterval` job,
+not a resident process, so it wakes, ticks and exits. Check `runs` is climbing.
+
+For stopping and restarting it, forcing a tick, following the log live and
+driving it by hand, see **[Running and managing the
+daemon](docs/OPERATIONS.md#running-and-managing-the-daemon)**.
+
 ---
 
 ## Nothing appears on your screen

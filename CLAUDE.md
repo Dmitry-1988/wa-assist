@@ -284,8 +284,13 @@ Self-chat commands: `OK #XXX`, `NO #XXX`, `EDIT #XXX: …`, `GROUPSUM`.
 - One `flock` per profile and one per queue item; an LLM run can outlast the
   tick interval, so without the latter two paid runs race. `wa-login` takes the
   same profile lock for its whole run (waits up to `LOCK_WAIT_S`, then refuses)
-  — rotation calls `rmtree` on a directory a tick may be driving. `--status`
-  takes no lock: it only reads a timestamp.
+  — rotation calls `rmtree` on a directory a tick may be driving.
+  `--status --quick` takes no lock: it only reads a timestamp. Plain
+  `--status` DOES take it, in `probe_live_state`, because it opens the page —
+  so it waits or reports `busy` while a tick holds the profile. This line and
+  the dispatch comment in `cli.py` both said otherwise until 2026-10-06,
+  written before the live probe existed; every other doc and
+  `test_login_lock.py` had it right the whole time.
 - **`workspace-mcp` is PINNED** (`uvx workspace-mcp@1.26.0`) in the MCP
   registration. Unpinned, every drafting run resolves whatever is newest that
   minute — an untested third-party dependency in the daemon's critical path,
