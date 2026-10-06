@@ -357,7 +357,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"wa-login: {exc}", file=sys.stderr)
         return 2
 
-    # Reads a timestamp; touches no browser. Must work while a tick runs.
+    # Handled before the lock below, because the two forms need different
+    # things: --quick reads a timestamp and must work while a tick runs, while
+    # the default opens the page and so takes the profile lock itself, inside
+    # `probe_live_state`. The comment here used to claim the whole command
+    # touched no browser, which stopped being true when the live probe was
+    # added -- and it is the kind of claim someone acts on at the moment the
+    # daemon is mid-tick.
     if args.status:
         return _status(config, live=not args.quick)
 

@@ -6,6 +6,82 @@ wrong. If you are setting it up for the first time, start with the
 
 ---
 
+## Running and managing the daemon
+
+Everything here assumes `WA_DAEMON_LABEL` is set to the label in your plist;
+substitute it for `<label>` below.
+
+### Is it alive?
+
+```bash
+launchctl print gui/$(id -u)/<label> | grep -E 'state|runs|last exit'
+```
+
+**`state = not running` is normal and is not a fault.** This is a
+`StartInterval` job, not a resident process: it wakes, ticks, exits, and sleeps
+until the next interval, so most of the time there is deliberately no process.
+What tells you it is healthy is `runs` climbing by one each interval and
+`last exit code = 0`.
+
+### Starting, stopping, restarting
+
+```bash
+launchctl bootout   gui/$(id -u)/<label>                       # stop
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/<label>.plist   # start
+launchctl kickstart -k gui/$(id -u)/<label>                    # tick NOW
+```
+
+Restarting is `bootout` then `bootstrap`, and **editing the plist requires
+both** — launchd caches it at bootstrap, so a changed `StartInterval` or
+environment does nothing until the job is reloaded. This is a recurring
+surprise; see [Updating](#updating).
+
+`kickstart` runs a real tick. It can capture chats, pay for a drafting run and
+post to your self-chat — it is not a dry run.
+
+Stopping the daemon does not unlink the session or lose queued work: the queue,
+outbox and journal are files, and the next tick picks up where this one left
+off. It is the right thing to do before anything that wants the profile to
+itself.
+
+### Watching it work
+
+`daemon.log` holds one JSON object per tick, but **pretty-printed across many
+lines** — so `tail` returns fragments of a record rather than records. Use
+`jq`, which reads the stream of objects properly:
+
+```bash
+# recent ticks, one line each
+jq -c '{at, error, n: (.actions|length)}' .wa-agent/daemon.log | tail -20
+
+# follow it live
+tail -f .wa-agent/daemon.log | jq -c '{at, error, actions}'
+
+# everything about the last tick that actually did something
+jq -c 'select(.actions|length > 0)' .wa-agent/daemon.log | tail -1 | jq
+```
+
+Keep `error` in every filter you write. A tick that dies early logs an empty
+`actions` list, so a daemon failing every cycle looks identical to an idle one
+— see [The daemon is running but doing
+nothing](#the-daemon-is-running-but-doing-nothing).
+
+### Driving it by hand
+
+```bash
+uv run wa-agent unread|chats|pending    # read-only; safe at any time
+uv run wa-agent tick                    # one full cycle, same as the daemon
+uv run wa-agent --visible tick          # the same, in a window you can watch
+uv run wa-login --status                # asks WhatsApp itself, not the record
+```
+
+One profile lock means one browser at a time. Run a tick by hand while the
+daemon fires and one of them logs `skipped: profile in use by another process`
+and tries again next interval — expected, not a failure. Only `--status`
+(with `--quick`) and the read-only queue commands take no lock.
+
+---
+
 ## One tick, in order
 
 The daemon runs `wa-agent tick` every `StartInterval` seconds (120 in the
@@ -35,11 +111,16 @@ cannot be posted.
 
 ## Reading `daemon.log`
 
-One JSON object per tick, appended. `jq` helps:
+One JSON object per tick, appended — pretty-printed, so reach for `jq` rather
+than `tail` (see [Watching it work](#watching-it-work)):
 
 ```bash
-jq -c 'select(.actions|length>0) | {at, actions}' .wa-agent/daemon.log | tail -20
+jq -c 'select(.actions|length>0) | {at, error, actions}' .wa-agent/daemon.log | tail -20
 ```
+
+`error` is in that filter deliberately. Dropping it leaves `{at, actions}`,
+which is precisely the filter that once hid a daemon failing every tick for
+half an hour — the entries looked merely idle.
 
 ### Normal progress
 
