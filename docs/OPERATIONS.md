@@ -414,13 +414,33 @@ should worry you:
 
 | message | what happened | what to do |
 |---|---|---|
-| `device unlinked; wiping profile` | confirmed | nothing |
-| `logout was performed but not confirmed` | Log out was pressed, the QR never appeared | probably fine; check Linked Devices when convenient |
+| `local session cleared; wiping profile` | this browser reached a QR screen; the account side was **not** checked | check Linked Devices and remove this computer if listed |
+| `logout was performed but not confirmed` | Log out was pressed, the QR never appeared | same — check Linked Devices |
 | `logout did NOT happen (stopped at: …)` | never pressed — menu or menu item not found | **the device is still linked**; remove it on your phone |
 
-The middle one used to be reported as an outright failure. On 2026-09-21 it
-sent the user to check Linked Devices and there was nothing to remove, because
-the unlink had in fact worked.
+**None of the three proves the device was revoked**, so all three end with the
+same instruction. Every one of them is inferred from what the *page* shows,
+and the page can only report the local session. The account-side registration
+is never read.
+
+On 2026-09-21 the middle message sent the user to check and there was nothing
+to remove — the unlink had worked, which is why the warning was softened.
+
+On 2026-10-28 the opposite: during a rotation an old macOS device was found
+still linked and had to be removed by hand. **Which cycle left it behind is
+not established.** The likeliest culprit is the 2026-10-03 rotation, which
+stopped at `confirmation` and was never followed up — in which case that
+outcome is a genuine failure and a device stayed linked for 25 days because
+the message said "probably fine". The alternative is that the 10-28 unlink
+failed while reporting success. The device list cannot tell them apart: either
+way exactly one entry remains.
+
+The first message used to read `device unlinked` and advise doing nothing,
+so under either explanation it was the wrong thing to print.
+
+Checking the device list from the browser after relinking would turn this into
+a real verification rather than an inference. It is not implemented: it needs
+selectors for a settings screen this project has never automated.
 
 `log_out()` has exactly one caller — `wa-login`. The daemon never unlinks. So
 `WA_ENFORCE_ROTATION` stops your agent while leaving the device linked and the

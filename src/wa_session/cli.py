@@ -93,7 +93,22 @@ def _rotate(config: Config) -> None:
         log(f"logout attempt failed: {exc}")
 
     if unlinked:
-        log("device unlinked; wiping profile")
+        # Do NOT say "device unlinked". What was observed is that this browser
+        # is now showing a QR, which proves the LOCAL session is gone. The
+        # account-side registration is a separate fact and nothing here reads
+        # it, so this cannot claim revocation however confident it looks.
+        #
+        # 2026-10-28: at this point in a rotation an old macOS device was found
+        # still linked, and the user removed it by hand. Which cycle left it is
+        # NOT established -- most likely the 2026-10-03 rotation, which stopped
+        # at `confirmation`; possibly this one despite reporting success. The
+        # two are indistinguishable from the device list alone, since either
+        # leaves exactly one entry. That ambiguity is the point: the tool has
+        # never once checked, so it must tell the user to.
+        log("local session cleared; wiping profile")
+        log("Reaching the QR screen does not prove the device was unlinked on")
+        log("the account. Check WhatsApp -> Linked Devices on your phone and")
+        log("remove this computer if it is still listed.")
     elif unlinked.clicked:
         # Log out WAS pressed; only the proof is missing. Saying "ACTION
         # NEEDED" here cries wolf -- on 2026-09-21 it sent the user to check
