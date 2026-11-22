@@ -19,6 +19,7 @@ could spawn a subagent with a wider tool set and undo the whole arrangement.
 from __future__ import annotations
 
 import json
+import os
 import re
 import shlex
 import shutil
@@ -70,6 +71,18 @@ def allowed_tools(config: Config) -> list[str]:
 # Read and Write are denied explicitly, not merely left out of the allowlist.
 DISALLOWED_TOOLS = ["Bash", "Read", "Write", "Edit", "NotebookEdit", "Agent",
                     "WebFetch", "WebSearch"]
+
+# `--allowedTools` pre-approves, it does not limit. Four things do the limiting:
+# `--tools ""` removes every built-in (Grep could search the project root), the
+# setting drops claude.ai connectors, these are the pinned server's other four
+# tools, and `dontAsk` refuses anything that appears later and is not allowed.
+DRAFTER_SETTINGS = '{"disableClaudeAiConnectors": true}'
+UNUSED_MCP_TOOLS = [
+    "mcp__workspace-mcp__get_gmail_messages_content_batch",
+    "mcp__workspace-mcp__get_gmail_threads_content_batch",
+    "mcp__workspace-mcp__list_gmail_labels",
+    "mcp__workspace-mcp__start_google_auth",
+]
 
 # A drafting run whose MCP server failed to connect still exits 0: Claude runs
 # perfectly well, just with no Gmail and no Calendar. On 2026-09-01 that turned
@@ -229,6 +242,14 @@ def tool_failure(event: dict) -> str:
         if found:
             return f"a tool call failed: {found.group(0)}"
     return ""
+
+
+def _run_env() -> dict:
+    """The CLI expands `@path` in a prompt into that file, with no tool call.
+
+    Prompts here carry other people's text, so expansion must be off.
+    """
+    return {**os.environ, "CLAUDE_CODE_DISABLE_ATTACHMENTS": "1"}
 
 
 def _event(line: str) -> dict | None:
@@ -446,8 +467,11 @@ def run_drafter(item: QueueItem, config: Config, timeout_s: int = 300) -> dict:
         binary, "-p", prompt,
         "--output-format", "stream-json", "--verbose",
         "--max-turns", "16",
+        "--tools", "",
+        "--settings", DRAFTER_SETTINGS,
+        "--permission-mode", "dontAsk",
         "--allowedTools", *allowed_tools(config),
-        "--disallowedTools", *DISALLOWED_TOOLS,
+        "--disallowedTools", *DISALLOWED_TOOLS, *UNUSED_MCP_TOOLS,
     ]
     summary = {"queue_id": item.queue_id, "cmd": shlex.join(cmd[:2]) + " …"}
 
@@ -473,7 +497,7 @@ def _attempt_draft(cmd: list[str], summary: dict, item: QueueItem,
     try:
         proc = subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-            bufsize=1, cwd=str(config.profile_dir.parent),
+            bufsize=1, cwd=str(config.profile_dir.parent), env=_run_env(),
         )
     except FileNotFoundError:
         return {**summary, "ok": False, "error": "claude CLI not found on PATH"}
@@ -661,12 +685,12 @@ def run_summarizer(config: Config, item: QueueItem, timeout_s: int = 420) -> dic
         binary, "-p", build_summary_prompt(item.messages, item.queue_id),
         "--output-format", "json",
         "--max-turns", "10",
-        "--allowedTools", *summary_allowed_tools(),
+        "--tools", "", "--strict-mcp-config",
         "--disallowedTools", *SUMMARY_DISALLOWED_TOOLS,
     ]
     try:
         proc = subprocess.run(cmd, capture_output=True, text=True,
-                              timeout=timeout_s,
+                              timeout=timeout_s, env=_run_env(),
                               cwd=str(config.profile_dir.parent))
     except subprocess.TimeoutExpired:
         return {"queue_id": item.queue_id, "ok": False,

@@ -48,6 +48,72 @@ def test_the_summariser_has_no_tools_at_all():
     assert summary_allowed_tools() == []
 
 
+def test_the_summariser_command_line_grants_no_tools(config, monkeypatch):
+    """Asserts the argv, because correct Python lists still built a shell.
+
+    An empty list after `--allowedTools` made the CLI read `--disallowedTools`
+    as that option's value, so every denied tool was pre-approved.
+    """
+    from wa_session import drafter
+    from wa_session.pipeline import QueueItem
+
+    spawned = []
+
+    def fake_run(cmd, **kwargs):
+        spawned.append(cmd)
+        return drafter.subprocess.CompletedProcess(cmd, 1, "", "")
+
+    monkeypatch.setattr(drafter, "claude_binary", lambda: "claude")
+    monkeypatch.setattr(drafter.subprocess, "run", fake_run)
+    drafter.run_summarizer(config, QueueItem(queue_id="sum-1", chat="__summary__"))
+
+    [cmd] = spawned
+    assert "--allowedTools" not in cmd and "--allowed-tools" not in cmd
+    assert cmd[cmd.index("--tools") + 1] == ""
+    assert cmd[cmd.index("--tools") + 2].startswith("--")
+    assert "--strict-mcp-config" in cmd and "--mcp-config" not in cmd
+    denied = cmd.index("--disallowedTools") + 1
+    assert cmd[denied:] == SUMMARY_DISALLOWED_TOOLS
+
+
+def test_the_drafter_command_line_grants_only_its_seven_tools(config, monkeypatch):
+    """`--allowedTools` pre-approves; it does not limit what is available.
+
+    Until this was asserted the drafter also had Grep over the project root,
+    the claude.ai connectors and four more workspace-mcp tools.
+    """
+    from wa_session import drafter
+    from wa_session.pipeline import QueueItem
+
+    spawned = []
+
+    def fake_attempt(cmd, *args):
+        spawned.append(cmd)
+        return {"ok": True}
+
+    monkeypatch.setattr(drafter, "claude_binary", lambda: "claude")
+    monkeypatch.setattr(drafter, "build_prompt", lambda *args: "prompt")
+    monkeypatch.setattr(drafter, "_attempt_draft", fake_attempt)
+    drafter.run_drafter(QueueItem(queue_id="q1", chat="X"), config)
+
+    [cmd] = spawned
+    assert cmd[cmd.index("--tools") + 1] == ""
+    assert cmd[cmd.index("--tools") + 2].startswith("--")
+    assert cmd[cmd.index("--permission-mode") + 1] == "dontAsk"
+    settings = json.loads(cmd[cmd.index("--settings") + 1])
+    assert settings["disableClaudeAiConnectors"] is True
+
+    allow, deny = cmd.index("--allowedTools"), cmd.index("--disallowedTools")
+    assert cmd[allow + 1:deny] == allowed_tools(config)
+    assert len(allowed_tools(config)) == 7
+    denied = set(cmd[deny + 1:])
+    assert set(DISALLOWED_TOOLS) <= denied
+    for extra in ("start_google_auth", "list_gmail_labels",
+                  "get_gmail_messages_content_batch",
+                  "get_gmail_threads_content_batch"):
+        assert f"mcp__workspace-mcp__{extra}" in denied
+
+
 @pytest.mark.parametrize("tool", ["Read", "Write", "Edit", "Bash", "Agent"])
 def test_filesystem_and_shell_are_denied_explicitly(tool):
     assert tool in DISALLOWED_TOOLS
