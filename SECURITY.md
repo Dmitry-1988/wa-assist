@@ -10,7 +10,7 @@ boundaries are, and what happened when one of them turned out to be imaginary.
 |---|---|---|
 | WhatsApp | every action | **none** |
 | Gmail / Calendar | none | read-only MCP |
-| Filesystem | full | **none** |
+| Filesystem | full | no file tools; see [limits](#what-is-not-closed) |
 | Composes text | never | yes |
 | Chooses recipient | yes, from the queue item | **never** |
 
@@ -18,9 +18,39 @@ Nothing is sent without a whole-message `OK #XXX` typed into your own WhatsApp
 self-chat. `OK #XXX but shorter` is ambiguous and never sends. Silence is never
 consent.
 
+## Finding: three holes in the model runs' isolation
+
+**Fixed 2026-11-22. The code had them since the first commit.** If you
+installed an earlier revision, update now: `git pull && uv sync`.
+
+This file said the drafter had no filesystem and the summariser no tools.
+Neither was true. All three were reproduced on Claude Code 2.1.330.
+
+1. **The summariser had a pre-approved shell.** `--allowedTools` followed by an
+   empty list swallowed `--disallowedTools`, turning the deny list into the
+   allow list: `Bash`, `Write` and `Edit`, in the run that reads group messages.
+   A message from a stranger could become code running as you.
+2. **The drafter could read the project directory.** `--allowedTools`
+   pre-approves; it does not limit. The run also had `Grep`, the claude.ai
+   connectors and four further workspace-mcp tools.
+3. **A message could attach a local file.** `claude -p` expands `@path` inside
+   a prompt into that file's contents, with no tool call, in both runs.
+
+The summariser now gets `--tools "" --strict-mcp-config`. The drafter gets
+`--tools ""`, has connectors and unused server tools removed, and runs in
+`dontAsk`. Both set `CLAUDE_CODE_DISABLE_ATTACHMENTS=1`.
+
+**If you ran an earlier revision**, updating does not undo past access. Claude
+Code's transcripts under `~/.claude/projects/` show tool calls and attached
+files, but old ones are deleted, so a clean look is not proof. If in doubt, log
+out the linked device, revoke the Google grant, replace the OAuth client secret
+and any other secret your user account could read, and check `src/` and
+`~/Library/LaunchAgents` for changes you did not make.
+
 ## Finding: the drafter could write the code the daemon executes
 
-**Fixed 2026-09-02. Present in all earlier revisions.**
+**Found 2026-09-02; that fix was incomplete until 2026-11-22 (see above).
+Present in all earlier revisions.**
 
 The drafting and summarising runs were granted `Read` and `Write`. `Edit` was
 withheld, and the code said so explicitly — the claim being that a model which
@@ -44,9 +74,9 @@ drafting rather than contained it.
 
 **The fix.** The exchange no longer touches the filesystem. The queue item is
 inlined into the prompt; the answer returns as the run's final message; the
-daemon validates it and writes the file. The drafter now holds read-only Gmail
-and Calendar and nothing else. The summariser holds no tools at all. `Read` and
-`Write` are denied explicitly rather than merely left out of the allowlist.
+daemon validates it and writes the file. `Read` and `Write` were added to the
+deny list. That was believed to leave the drafter only Gmail and Calendar and
+the summariser nothing; it did neither.
 
 The lesson is narrow and worth stating plainly: an allowlist that omits a
 dangerous tool is not the same as a boundary, and a comment asserting a
@@ -58,13 +88,16 @@ An adversarial review of the finished implementation was run on 2026-09-02
 against the code rather than the design notes, covering permission boundaries,
 prompt injection, secret handling, session data, MCP permissions, approval
 bypasses, restart behaviour, duplicate sends and unattended execution. Its
-findings are fixed, and the properties they turned on are asserted in
+findings were fixed, but it missed the three holes above: its tests checked
+Python lists, not what the CLI did with them. The properties are asserted in
 `tests/test_security_hardening.py` so a regression fails the suite rather than
 being rediscovered in production:
 
-- the drafter has no filesystem or shell tools, and the summariser has none at
-  all; `Read`, `Write`, `Edit`, `Bash` and `Agent` are denied explicitly, not
-  merely left out of an allowlist
+- both runs' real command lines remove every built-in tool; the summariser
+  also gets no MCP servers
+- a message cannot attach a file: `tests/test_prompt_mentions.py` runs the real
+  CLI. The variable it relies on is undocumented, so **run it after every Claude
+  Code update**. It skips without the CLI, as in CI
 - the answer is parsed from the run's final message, never read back from a
   file the run could have written
 - a caveat is never consent — `OK #X but shorter` refuses to send, and a later
@@ -75,22 +108,41 @@ being rediscovered in production:
   a second delivery
 - nothing is marked seen until it has actually been delivered — a note is
   confirmed by reading it back, and a failed digest keeps its queue item and
-  its watermarks
+  its watermarks (known gap: an older note with the same first 60 characters
+  can satisfy that check)
 
 The `--live` flag is honoured only immediately after a poll returned `approve`
 for that exact draft id, and `propose`/`deliver` refuse any chat that is not in
 `reply` mode. The recipient is verified on two independent DOM signals and any
 conflict refuses the send.
 
+## What is not closed
+
+- **Injection can still steer the words.** The drafter can search all your mail
+  and calendars and could put what it finds in a draft. Your reading the draft
+  before `OK` is the control.
+- **The drafter's server writes files.** Downloading an attachment, or a message
+  with `full=True`, saves it under `~/.workspace-mcp/attachments/`. The model
+  does not choose the directory and has no tool to read it back.
+- **Your own Claude settings can widen the drafter.** It sees other MCP servers
+  you configured, and `dontAsk` runs any of their tools your allow rules permit.
+  Do not combine such rules with this project.
+- **Both runs load Claude's project context**, including `CLAUDE.md` and
+  auto-memory, so its contents could appear in a draft or digest.
+- **`wa-agent reauth` and the manual checks in GOOGLE_SETUP are not isolated.**
+  They run only when you start them, but keep Claude's default tools and can
+  read calendar text other people wrote.
+
 ## Handling of secrets
 
 - `.wa-profile/` is a **live WhatsApp credential**. Anyone holding it can read
   and send as you. It is gitignored, `0700`, and never leaves the machine.
 - `.wa-agent/` holds the allowlist, journal, queue and your account
-  configuration. Gitignored, `0700`/`0600`.
+  configuration. Gitignored, in a `0700` directory; files are `0600` except
+  the logs launchd creates (`0644`).
 - Real account and calendar identifiers live in `.wa-agent/context.json`, which
   is gitignored. `context.example.json` in the repo is a placeholder template.
-- No credential is committed, logged to stdout, or placed in a draft.
+- No credential is committed or logged to stdout.
 
 ## Reporting
 

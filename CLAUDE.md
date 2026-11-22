@@ -13,11 +13,21 @@ user approves each one in his own WhatsApp self-chat before anything is sent.
 | Composes text | never | yes |
 | Chooses recipient | yes, from the queue item | **never** |
 
-The drafter runs with **read-only Gmail/Calendar MCP and nothing else** — no
-Bash, no Read, no Write, no Edit, no Agent. It has no filesystem at all: the
-queue item is inlined into the prompt and the answer comes back as the run's
-final message, which the DAEMON validates and writes. The summariser gets
-**zero tools**.
+The drafter gets **seven read-only Gmail/Calendar MCP tools** and no built-ins.
+The queue item is inlined into the prompt and the answer comes back as the
+run's final message, which the DAEMON validates and writes. The summariser gets
+**zero tools**. Four traps, all measured 2026-11-22:
+
+- `--allowedTools` **pre-approves, it does not limit**. `--tools ""` removes
+  built-ins; MCP tools and connectors have to be removed separately.
+- **Never pass it an empty list**: it eats the next flag, which turned the
+  summariser's deny list into its allow list, shell included.
+- **`@path` in a prompt attaches that file with no tool call.** Every run that
+  carries other people's text needs `env=_run_env()`.
+- The seven hold only if the user has no other MCP server: `dontAsk` honours
+  their allow rules. Not closed; see `SECURITY.md`, as is what else remains.
+
+Assert on argv or the real CLI, never only on the lists that build them.
 
 That matters: `Write` was granted until 2026-09-02 and reached
 `src/wa_session/`, the package the daemon imports and executes on its next
@@ -208,7 +218,8 @@ uv run wa-agent list|allow|deny # allowlist (--mode reply|summarize)
 uv run wa-agent unread|chats|pending|drop|read|digest-catchup|reauth
 uv run wa-agent propose|poll|send [--live]
 uv run wa-agent tick            # one unattended cycle (the daemon runs this)
-uv run pytest                   # 746 tests; -m "not browser" for the fast ones
+uv run pytest                   # 752 tests; -m "not browser" for the fast ones
+uv run pytest tests/test_prompt_mentions.py  # after EVERY Claude Code update
 ```
 
 Self-chat commands: `OK #XXX`, `NO #XXX`, `EDIT #XXX: …`, `GROUPSUM`.
@@ -333,7 +344,8 @@ Self-chat commands: `OK #XXX`, `NO #XXX`, `EDIT #XXX: …`, `GROUPSUM`.
 ## State
 
 `.wa-agent/` — allowlist, style.json (house style injected into prompts),
-journal.jsonl, queue/, outbox/, daemon.log. All gitignored, all `0600`/`0700`.
+journal.jsonl, queue/, outbox/, daemon.log. All gitignored, dir `0700`, files
+`0600` except launchd's logs (`0644`).
 `.wa-profile/` is a live WhatsApp credential — treat it like an SSH key.
 
 ## Daemon
@@ -362,7 +374,8 @@ warns; set `WA_ENFORCE_ROTATION=1` to make it stop instead.
 
 It was 24h while the drafter could still reach the filesystem — a prompt
 injection could `Write` into `src/wa_session/` and copy the profile out. That
-path is closed.
+path was believed closed on 2026-09-02; through the summariser it stayed open
+until 2026-11-22.
 
 `log_out` returns `LogoutResult(ok, step)`, and its two failures are NOT
 equally serious. Stopping at `menu` or `logout item` means Log out was never

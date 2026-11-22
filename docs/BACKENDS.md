@@ -102,10 +102,11 @@ the self-chat says so. None of that changes.
 
 ### 2. Grant capability positively
 
-`DISALLOWED_TOOLS` exists only because the Claude CLI ships a large built-in
-tool surface — `Bash`, `Read`, `Write`, `Edit`, `Agent` — that must be denied
-explicitly, since an allowlist that merely omits a dangerous tool is not a
-boundary. That was the disclosed privilege-escalation finding: `Write` reached
+The Claude CLI ships a large built-in tool surface — `Bash`, `Read`, `Write`,
+`Edit`, `Agent` — that `--tools ""` has to remove: an allowlist only
+pre-approves, and a deny list misses what it does not name (`Grep`, here).
+`@path` expansion must be switched off as well, since it needs no tool. See
+SECURITY.md. The first finding of this kind was that `Write` reached
 `src/wa_session/`, the package the daemon imports and executes.
 
 An API backend starts with **no** tools and gains only what you implement. That
@@ -125,7 +126,7 @@ final message; the daemon does the rest.
 
 ### Summariser — portable almost for free
 
-`summary_allowed_tools()` returns `[]`. Zero tools, prompt in, JSON out. A
+Zero tools (`--tools "" --strict-mcp-config`), prompt in, JSON out. A
 local model via Ollama or llama.cpp needs an adapter of perhaps thirty lines.
 
 This is the one worth doing first, and not for cost: **group chatter is written

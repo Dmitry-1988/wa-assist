@@ -66,14 +66,14 @@ costs an API call. So does each `GROUPSUM`.
 |---|---|---|
 | WhatsApp | every action | **none** |
 | Gmail / Calendar | none | read-only, via MCP |
-| Filesystem | full | **none** |
+| Filesystem | full | no file tools |
 | Composes text | never | yes |
 | Chooses recipient | yes, from the queue item | **never** |
 
-The drafter has no shell, no filesystem and no way to reach WhatsApp, so it
-cannot post an approval or send its own draft. That is structural, not a rule
-it is asked to follow — see [SECURITY.md](SECURITY.md), including a fixed
-finding where it *could* write the code the daemon executes.
+The drafter has no shell, no file tools and no way to reach WhatsApp, so it
+cannot post an approval or send its own draft. **Until 2026-11-22 this was not
+true of the model runs: if you installed earlier, update now.** See
+[SECURITY.md](SECURITY.md) for what was open and what still is.
 
 Chats are opt-in, per chat, in one of two modes:
 
@@ -127,7 +127,7 @@ logo forces a verification review.
 The short version, once you have the client id and secret:
 
 ```bash
-claude mcp add workspace-mcp --scope project \
+claude mcp add workspace-mcp --scope local \
   -e GOOGLE_OAUTH_CLIENT_ID=... \
   -e GOOGLE_OAUTH_CLIENT_SECRET=... \
   -e WORKSPACE_MCP_PORT=8000 \
@@ -285,7 +285,7 @@ uv run wa-agent list|allow|deny|chats|unread|pending|drop|read
 uv run wa-agent digest-catchup       # treat everything now as already digested
 uv run wa-agent reauth               # re-authorise Google (weekly, see GOOGLE_SETUP)
 uv run wa-agent tick                  # one cycle by hand
-uv run pytest                         # 746 tests
+uv run pytest                         # 752 tests
 uv run pytest -m "not browser"        # the fast subset
 ```
 
@@ -303,7 +303,7 @@ uv run pytest -m "not browser"        # the fast subset
 Files in `.wa-agent/`: `allowlist.json`, `context.json`, `style.json` (house
 style injected into every prompt), `digest_seen.json`, `rotation.json`,
 `journal.jsonl`, `queue/`, `outbox/`, `daemon.log`. All gitignored,
-`0700`/`0600`. What each holds, and which are safe to delete, is in
+`0700` directory. What each holds, and which are safe to delete, is in
 **[docs/OPERATIONS.md](docs/OPERATIONS.md)**.
 
 Do not delete `journal.jsonl`: it is the only thing preventing a draft being
@@ -368,7 +368,8 @@ lapses the self-chat is gone too, and the only fallback is a macOS notification.
 lifetime, so a session left alone keeps working. It was 24h while the drafter
 could still reach the filesystem, because a prompt-injected run could write
 into `src/wa_session/`, which the daemon imports and executes, and copy the
-profile out from there. That path is closed.
+profile out from there. That path was believed closed on 2026-09-02 but stayed
+open through the summariser until 2026-11-22.
 
 **Rotation does not revoke anything by itself.** Reaching the deadline posts a
 warning; passing it does nothing, and `WA_ENFORCE_ROTATION=1` only makes the

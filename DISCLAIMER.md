@@ -86,8 +86,9 @@ These are the parts that are designed not to fail, and are covered by tests:
 - **Nothing is sent without you typing `OK #XXX` as a whole message.** Not on
   silence, not on "OK #XXX but shorter" — an unclear approval refuses.
 - **The part that writes text cannot reach WhatsApp.** It has read-only Gmail
-  and Calendar and nothing else: no filesystem, no shell, no way to send. It
-  cannot approve its own draft or choose who to send to.
+  and Calendar, no shell and no file tools. It cannot approve its own draft or
+  choose who to send to. Versions before 2026-11-22 did not hold to this;
+  [SECURITY.md](SECURITY.md) says what was open and what still is.
 - **A group in `summarize` mode is never replied to**, only digested.
 - **A draft is sent once.** An append-only journal records the attempt before
   the click, so a crash cannot produce a second send.

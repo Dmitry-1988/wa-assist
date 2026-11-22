@@ -110,7 +110,7 @@ fails, wait and retry before changing anything.
 From the project directory:
 
 ```bash
-claude mcp add workspace-mcp --scope project \
+claude mcp add workspace-mcp --scope local \
   -e GOOGLE_OAUTH_CLIENT_ID=... \
   -e GOOGLE_OAUTH_CLIENT_SECRET=... \
   -e WORKSPACE_MCP_PORT=8000 \
