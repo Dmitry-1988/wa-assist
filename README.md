@@ -223,7 +223,7 @@ This is worth stating because it was not true until recently, and the reason
 is a good warning. WhatsApp Web answers headless Chromium with *"WhatsApp
 works with Google Chrome 100+"* rather than the app, because headless
 advertises `HeadlessChrome/…` in its User-Agent. That page was read as "it
-does not render headless", and for months every browser step ran headed and
+does not render headless", and until 2026-09-06 every browser step ran headed and
 was minimised through CDP — which is not invisible either: the window is
 created frontmost and minimised a moment later, so each launch stole focus and
 reshuffled macOS Spaces, about thirty times an hour at a 120s interval.
@@ -285,7 +285,7 @@ uv run wa-agent list|allow|deny|chats|unread|pending|drop|read
 uv run wa-agent digest-catchup       # treat everything now as already digested
 uv run wa-agent reauth               # re-authorise Google (weekly, see GOOGLE_SETUP)
 uv run wa-agent tick                  # one cycle by hand
-uv run pytest                         # 774 tests
+uv run pytest                         # 721 tests
 uv run pytest -m "not browser"        # the fast subset
 ```
 
@@ -402,8 +402,8 @@ Verified against the live site, most recently on 2026-09-06:
   every command arrives. Reads therefore start at the bottom and merge each
   window as they scroll up. Scrolling costs about 6s, so reads are cached per
   page.
-- **It gates on the User-Agent, not on headless** — the misreading that shaped
-  this project for months. See [Nothing appears on your
+- **It gates on the User-Agent, not on headless** — a misreading that kept
+  every tick in a visible window until 2026-09-06. See [Nothing appears on your
   screen](#nothing-appears-on-your-screen).
 - Nothing useful exists at `DOMContentLoaded`; the app needs a few seconds.
   `wait_for_state` polls instead of reading the DOM immediately.

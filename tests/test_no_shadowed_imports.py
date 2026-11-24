@@ -19,7 +19,6 @@ happy to rebind a name. This is cheap to check directly.
 import ast
 import pathlib
 
-import pytest
 
 SRC = pathlib.Path(__file__).resolve().parent.parent / "src" / "wa_session"
 MODULES = sorted(SRC.glob("*.py"))
@@ -37,21 +36,6 @@ def bound_names(tree: ast.AST):
             for alias in node.names:
                 yield (alias.asname or alias.name.split(".")[0],
                        f"import {alias.name}")
-
-
-@pytest.mark.parametrize("path", MODULES, ids=lambda p: p.name)
-def test_no_import_is_shadowed_by_another(path):
-    tree = ast.parse(path.read_text(encoding="utf-8"))
-    seen: dict[str, str] = {}
-    for name, source in bound_names(tree):
-        if name in seen and seen[name] != source:
-            pytest.fail(
-                f"{path.name}: '{name}' is bound twice --\n"
-                f"    {seen[name]}\n"
-                f"    {source}\n"
-                "The second silently replaces the first."
-            )
-        seen[name] = source
 
 
 def test_the_two_read_functions_still_have_different_names():
@@ -89,24 +73,41 @@ def function_local_imports(tree: ast.AST):
                            node.lineno)
 
 
-@pytest.mark.parametrize("path", MODULES, ids=lambda p: p.name)
-def test_no_local_import_shadows_a_module_level_one(path):
-    """`agent_cli.main` imported `Allowlist` inside one branch while the module
-    already imported it at the top. Python then treats the name as local for
-    the ENTIRE function, so an earlier branch -- `wa-agent list` -- died with
+def shadowing(path: pathlib.Path):
+    """Every way `path` binds one name to two things, as readable lines."""
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+
+    seen: dict[str, str] = {}
+    for name, source in bound_names(tree):
+        if name in seen and seen[name] != source:
+            yield (f"{path.name}: '{name}' is bound twice -- {seen[name]} / "
+                   f"{source}. The second silently replaces the first.")
+        seen[name] = source
+
+    top = module_level_names(tree)
+    for func, name, lineno in function_local_imports(tree):
+        if name in top:
+            yield (f"{path.name}:{lineno}: {func}() imports '{name}', which is "
+                   f"already imported at module level. That makes '{name}' "
+                   f"local to all of {func}(), so any earlier use raises "
+                   "UnboundLocalError.")
+
+
+def test_no_import_is_shadowed():
+    """Both variants, across every module, in one pass.
+
+    The second: `agent_cli.main` imported `Allowlist` inside one branch while
+    the module already imported it at the top. Python then treats the name as
+    local for the ENTIRE function, so an earlier branch -- `wa-agent list` --
+    died with
 
         UnboundLocalError: cannot access local variable 'Allowlist'
 
     The import looked redundant rather than harmful, which is why it survived
     review. It broke the first command a new user runs.
+
+    Every offender is listed, not just the first.
     """
-    tree = ast.parse(path.read_text(encoding="utf-8"))
-    top = module_level_names(tree)
-    for func, name, lineno in function_local_imports(tree):
-        if name in top:
-            pytest.fail(
-                f"{path.name}:{lineno}: {func}() imports '{name}', which is "
-                f"already imported at module level. That makes '{name}' local "
-                f"to all of {func}(), so any earlier use raises "
-                "UnboundLocalError."
-            )
+    assert len(MODULES) > 10, f"found only {len(MODULES)} modules under {SRC}"
+    problems = [line for path in MODULES for line in shadowing(path)]
+    assert not problems, "\n".join(problems)

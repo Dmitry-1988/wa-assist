@@ -17,7 +17,7 @@ LAUNCH_ARGS = ["--disable-blink-features=AutomationControlled"]
 
 VIEWPORT = {"width": 1280, "height": 900}
 
-# THE reason this project spent months opening real windows.
+# THE reason this project opened real windows until 2026-09-06.
 #
 # Headless Chromium advertises itself as "HeadlessChrome/..." and WhatsApp Web
 # answers that with a browser-support notice -- "WhatsApp works with Google

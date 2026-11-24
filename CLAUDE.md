@@ -238,7 +238,7 @@ uv run wa-agent list|allow|deny # allowlist (--mode reply|summarize)
 uv run wa-agent unread|chats|pending|drop|read|digest-catchup|reauth
 uv run wa-agent propose|poll|send [--live]
 uv run wa-agent tick            # one unattended cycle (the daemon runs this)
-uv run pytest                   # 774 tests; -m "not browser" for the fast ones
+uv run pytest                   # 721 tests; -m "not browser" for the fast ones
 uv run pytest tests/test_prompt_mentions.py tests/test_settings_isolation.py
                                 # ^ after EVERY Claude Code update
 ```
@@ -281,8 +281,8 @@ Self-chat commands: `OK #XXX`, `NO #XXX`, `EDIT #XXX: …`, `GROUPSUM`.
 - **WhatsApp Web renders headless fine — it gates on the User-Agent.**
   Headless Chromium says `HeadlessChrome/...` and WhatsApp answers with
   "WhatsApp works with Google Chrome 100+" instead of the app. That page was
-  read as "does not render headless" and cost this project months of headed,
-  CDP-minimised windows. Send `session.CHROME_UA` and old and new headless
+  read as "does not render headless", and until 2026-09-06 every tick opened a
+  headed, CDP-minimised window. Send `session.CHROME_UA` and old and new headless
   both work — verified 2026-09-06 on a live logged-in session: chat list,
   virtualised message list, emoji as `<img>`, both recipient signals, typing
   and click-to-send. The UA is passed headed too, so a login and a tick look
