@@ -13,7 +13,7 @@ user approves each one in his own WhatsApp self-chat before anything is sent.
 | Composes text | never | yes |
 | Chooses recipient | yes, from the queue item | **never** |
 
-The drafter gets **seven read-only Gmail/Calendar MCP tools** and no built-ins.
+The drafter gets **six read-only Gmail/Calendar MCP tools** and no built-ins.
 The queue item is inlined into the prompt and the answer comes back as the
 run's final message, which the DAEMON validates and writes. The summariser gets
 **zero tools**. Four traps, measured 2026-11-22 and 11-24:
@@ -28,6 +28,11 @@ run's final message, which the DAEMON validates and writes. The summariser gets
   allow rules pre-approve other servers' tools, and `dontAsk` runs them. Not
   `""` or `project`: both drop the local workspace-mcp registration too, and
   the run starts with no Gmail and no Calendar.
+- **Auto-memory loads regardless of setting sources.** `_run_env` sets
+  `CLAUDE_CODE_DISABLE_AUTO_MEMORY` and `CLAUDE_CODE_DISABLE_CLAUDE_MDS`.
+  Anything a draft needs (name spellings) belongs in `style.json`.
+- workspace-mcp inherits the run's environment, so `WORKSPACE_ATTACHMENT_DIR`
+  points its file storage at a folder deleted after each drafting run.
 
 Assert on argv or the real CLI, never only on the lists that build them.
 
@@ -149,9 +154,12 @@ The answer schema still **rejects** `chat`/`recipient`/`to`/`send`/`live`/`draft
   substitute was covering. State the words and let the user draw the
   consequence. The digest also must not title itself: the daemon adds the
   header, and `_strip_own_title` removes a second one anyway.
-- **Digests are short.** Under 120 words total, max 3 one-line bullets per
+- **Digests are short.** Aim under 120 words, max 3 one-line bullets per
   chat, no restating a message in full — a digest slower to read than the
-  messages has failed. (A 2-message digest once filled a phone screen.)
+  messages has failed. (A 2-message digest once filled a phone screen.) The
+  model treats a target as a suggestion (186 words on 2026-11-22), so above
+  `DIGEST_WORD_LIMIT` (150) the daemon asks once for a shorter one. A digest
+  still too long is posted anyway; one that never arrives is worse.
 - **Digests are English.** The groups are Hebrew; the digest translates rather
   than transcribes and never mixes languages mid-sentence, quoting short Hebrew
   only where the exact wording carries the meaning. This is the DIGEST only —
@@ -227,7 +235,9 @@ The answer schema still **rejects** `chat`/`recipient`/`to`/`send`/`live`/`draft
   (120), and hitting either is reported. The gap is the DAEMON's fact — the
   summariser is handed messages and cannot know what never arrived, so telling
   it would only invite a guess. The mark still advances on a gap: what was
-  covered is covered.
+  covered is covered. Before giving up on a group whose mark is out of view,
+  the daemon reads it again to `SUMMARY_DEEP_DEPTH` (250), logged as
+  `groupsum_deep_capture`; two of five groups outran 60 rows in a week.
 
 ## Commands
 
@@ -238,9 +248,9 @@ uv run wa-agent list|allow|deny # allowlist (--mode reply|summarize)
 uv run wa-agent unread|chats|pending|drop|read|digest-catchup|reauth
 uv run wa-agent propose|poll|send [--live]
 uv run wa-agent tick            # one unattended cycle (the daemon runs this)
-uv run pytest                   # 721 tests; -m "not browser" for the fast ones
+uv run pytest                   # 732 tests; -m "not browser" for the fast ones
 uv run pytest tests/test_prompt_mentions.py tests/test_settings_isolation.py
-                                # ^ after EVERY Claude Code update
+                                # ^ after EVERY Claude Code update (CI: weekly)
 ```
 
 Self-chat commands: `OK #XXX`, `NO #XXX`, `EDIT #XXX: …`, `GROUPSUM`.

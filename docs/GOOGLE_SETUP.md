@@ -137,6 +137,7 @@ Raise the pin deliberately, and re-run the check below afterwards.
 
 ```bash
 claude -p "Call list_calendars for <you>@gmail.com" \
+  --tools "" --setting-sources local --permission-mode dontAsk \
   --allowedTools "mcp__workspace-mcp__list_calendars" --max-turns 3
 ```
 
@@ -164,7 +165,9 @@ Go to …** — expected, and permanent for an unverified app — and approve.
 > claude -p "Call list_calendars for <you>@gmail.com. If it needs
 >   authentication, print the URL and retry every 20 seconds up to 12 times
 >   while a human completes consent." \
->   --allowedTools "mcp__workspace-mcp__list_calendars" --max-turns 30
+>   --tools Bash --setting-sources local --permission-mode dontAsk \
+>   --allowedTools "mcp__workspace-mcp__list_calendars" "Bash(sleep:*)" \
+>   --max-turns 30
 > ```
 
 > **Trap 5 — `ERR_CONNECTION_REFUSED` on the callback means nothing was
@@ -237,6 +240,7 @@ drafting and posts a note in your self-chat naming the command.
 
 ```bash
 claude -p "Call get_events for <you>@gmail.com for the next 7 days" \
+  --tools "" --setting-sources local --permission-mode dontAsk \
   --allowedTools "mcp__workspace-mcp__get_events" --max-turns 5
 ```
 

@@ -4,6 +4,12 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Claude Code updates itself without a word, and the isolation of the model
+  # runs rests on how it treats its flags. Weekly, so a CLI change is caught
+  # even when nothing here was pushed.
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
 
 jobs:
   test:
@@ -21,5 +27,13 @@ jobs:
       - name: Sync dependencies
         run: uv sync --all-extras --dev
 
+      # The real-CLI checks (test_prompt_mentions, test_settings_isolation)
+      # talk only to a fake API on localhost with a dummy key. Latest CLI on
+      # purpose: catching its changes is the point.
+      - name: Install the Claude Code CLI
+        run: npm install -g @anthropic-ai/claude-code
+
       - name: Run tests
-        run: uv run pytest -m "not browser" -q
+        env:
+          WA_REQUIRE_CLAUDE_CLI: "1"
+        run: uv run pytest -m "not browser" -q -rs

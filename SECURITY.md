@@ -104,8 +104,8 @@ being rediscovered in production:
 - a message cannot attach a file: `tests/test_prompt_mentions.py` runs the real
   CLI. The variable it relies on is undocumented, so **run it after every Claude
   Code update**, with `tests/test_settings_isolation.py`, which checks that
-  your own MCP servers and allow rules stay out. Both skip without the CLI, as
-  in CI
+  your own MCP servers and allow rules stay out. CI installs the CLI and runs
+  both on every push and once a week; locally they skip without it
 - the answer is parsed from the run's final message, never read back from a
   file the run could have written
 - a caveat is never consent — `OK #X but shorter` refuses to send, and a later
@@ -131,15 +131,19 @@ conflict refuses the send.
 - **Injection can still steer the words.** The drafter can search all your mail
   and calendars and could put what it finds in a draft. Your reading the draft
   before `OK` is the control.
-- **The drafter's server writes files.** Downloading an attachment, or a message
-  with `full=True`, saves it under `~/.workspace-mcp/attachments/`. The model
-  does not choose the directory and has no tool to read it back.
-- **Both runs load Claude's project context**, including `CLAUDE.md` and
-  auto-memory, so its contents could appear in a draft or digest. Kept on
-  purpose: the memory holds how names are spelt in replies.
-- **The manual `claude -p` checks in GOOGLE_SETUP are not isolated.** They run
-  only when you type them, but keep Claude's default tools and can read
-  calendar text other people wrote.
+- **Claude Code itself is not pinned.** The isolation rests on how the CLI
+  treats its flags and an undocumented environment variable. The two real-CLI
+  checks run in CI on every push and weekly, so a CLI change that breaks them
+  shows up as a failed run.
+
+Closed on 2026-11-24, and listed here until then:
+
+- Neither run loads your auto-memory or `CLAUDE.md` any more. Name spellings
+  come from `.wa-agent/style.json`, which was already in every prompt.
+- The drafter no longer has the attachment tool, which saved a file and
+  returned a path it could not open. A message fetched with `full=True` is
+  written to a folder that exists only for the length of the run.
+- The manual `claude -p` checks in GOOGLE_SETUP carry the same lockdown flags.
 
 ## Handling of secrets
 

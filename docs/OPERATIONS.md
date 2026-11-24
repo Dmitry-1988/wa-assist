@@ -135,6 +135,8 @@ half an hour — the entries looked merely idle.
 | `groupsum_queued` | which chats and how many new messages each |
 | `groupsum_unchanged` | groups with nothing new since the last digest |
 | `groupsum_window_gap` | a digest could not cover everything; the note says so too |
+| `groupsum_deep_capture` | a group's last reported message was out of view, so it was read again deeper; `recovered` says whether that closed the gap |
+| `digest_words`, `shortened_from` | the digest's length; a digest over 150 words is rewritten once |
 | `groupsum: nothing new` | nothing anywhere; no paid run was made |
 | `unmonitored_unread` | unread chats the allowlist does not cover |
 | `rotation_warning` | a session-expiry warning was posted |
@@ -328,7 +330,11 @@ self-chat note with the span.
 
 The cause is not established. The network and web.whatsapp.com answered
 normally right after the 11-24 run ended by itself. Candidates are WhatsApp
-throttling repeated loads, a network drop and the machine sleeping.
+throttling repeated loads, a network drop and the machine sleeping. Every
+failed load now logs `diag`: one plain HTTPS request to web.whatsapp.com
+(`https_status`, or `https_error` if unreachable) and the free disk space. A
+status means the network is fine and the browser is what fails; the desktop
+notice says which.
 
 These are current behaviour, not bugs with a fix pending. They are listed so a
 surprise is a recognised one.
