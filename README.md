@@ -1,11 +1,14 @@
 # wa-assist
 
-A WhatsApp reply assistant that will not send anything without you saying so.
+A WhatsApp assistant that drafts replies for you to approve and summarises busy
+group chats on request. It will not send anything without you saying so.
 
 A launchd daemon drives WhatsApp Web through Playwright on a persistent
 Chromium profile. When an allowlisted contact writes to you, a headless Claude
 run drafts a reply using your Gmail and Calendar, and posts it into **your own
 WhatsApp self-chat**. Nothing is delivered until you reply `OK #XXX` there.
+For groups, send `GROUPSUM` in the same chat and you get a short digest of what
+is new, written by a separate run that has no tools at all.
 
 ```
 Ann: what date did we drive up for Max's wedding? and did I ever pay you
