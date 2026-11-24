@@ -1,7 +1,7 @@
 [project]
 name = "wa-assist"
 version = "0.1.0"
-description = "A WhatsApp reply assistant: a daemon drives WhatsApp Web, a locked-down Claude run drafts, and nothing is sent without your explicit approval."
+description = "A WhatsApp assistant for macOS: drafts replies from your Gmail and Calendar for you to approve, and summarises busy group chats on request. Nothing is sent without your explicit OK."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
