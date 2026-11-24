@@ -94,7 +94,7 @@ def test_post_note_refuses_an_unacknowledged_note(monkeypatch):
         text, msg_id = "hello world", "id1"
 
     monkeypatch.setattr(selfchat, "post", lambda page, text, dry_run=False: None)
-    monkeypatch.setattr(selfchat, "read", lambda page, **kw: [_Msg()])
+    monkeypatch.setattr(selfchat, "read", _after_first([_Msg()]))
     page = FakePage(["Pending"])
     with pytest.raises(RuntimeError, match="never acknowledged"):
         post_note(page, "hello world", settle_s=0.05, ack_s=0.05)
@@ -108,8 +108,53 @@ def test_post_note_accepts_an_acknowledged_note(monkeypatch):
         text, msg_id = "hello world", "id1"
 
     monkeypatch.setattr(selfchat, "post", lambda page, text, dry_run=False: None)
-    monkeypatch.setattr(selfchat, "read", lambda page, **kw: [_Msg()])
+    monkeypatch.setattr(selfchat, "read", _after_first([_Msg()]))
     assert post_note(FakePage(["Read"]), "hello world") == "id1"
+
+
+def _after_first(messages):
+    """A self-chat that is empty until the note is posted."""
+    calls = []
+
+    def read(page, **kw):
+        calls.append(1)
+        return [] if len(calls) == 1 else list(messages)
+    return read
+
+
+def test_an_identical_older_note_does_not_count_as_this_one(monkeypatch):
+    """The match is on 60 fingerprint characters, so the same warning posted
+    twice matched the FIRST copy and the second counted as delivered even when
+    it never posted. Only a message that was not already there counts."""
+    import wa_session.selfchat as selfchat
+    from wa_session.tick import post_note
+
+    class _Old:
+        text, msg_id = "hello world", "old"
+
+    monkeypatch.setattr(selfchat, "post", lambda page, text, dry_run=False: None)
+    monkeypatch.setattr(selfchat, "read", lambda page, **kw: [_Old()])
+    with pytest.raises(RuntimeError, match="never appeared"):
+        post_note(FakePage(["Read"]), "hello world", settle_s=0.05)
+
+
+def test_a_repeated_note_is_found_under_its_new_id(monkeypatch):
+    import wa_session.selfchat as selfchat
+    from wa_session.tick import post_note
+
+    class _M:
+        def __init__(self, i):
+            self.text, self.msg_id = "hello world", i
+
+    calls = []
+
+    def read(page, **kw):
+        calls.append(1)
+        return [_M("old")] if len(calls) == 1 else [_M("old"), _M("new")]
+
+    monkeypatch.setattr(selfchat, "post", lambda page, text, dry_run=False: None)
+    monkeypatch.setattr(selfchat, "read", read)
+    assert post_note(FakePage(["Read"]), "hello world") == "new"
 
 
 def test_a_draft_is_not_armed_without_an_acknowledgement(monkeypatch):

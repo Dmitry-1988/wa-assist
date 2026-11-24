@@ -37,6 +37,7 @@ from .agent import (
 from .allowlist import Allowlist
 from .approval import Decision, Journal, is_groupsum, latinize
 from .config import WHATSAPP_URL, Config, load_config
+from .compose import fingerprint as _fingerprint
 from .interstitials import dismiss
 from .drafter import cli_healthy, run_drafter, run_summarizer
 from .lock import Busy, profile_lock
@@ -112,6 +113,7 @@ def run_tick(config: Config | None = None) -> dict:
         return result
     except Exception as exc:  # a daemon must not die on one bad tick
         result["error"] = f"{type(exc).__name__}: {exc}"
+        _record_tick_error(config, result)
         return result
 
     if result.get("blocked"):
@@ -139,6 +141,81 @@ def run_tick(config: Config | None = None) -> dict:
     return result
 
 
+# A failing tick used to be visible only in daemon.log. 2026-11-18 to 11-20,
+# 1249 ticks in a row died on `Page.goto` timeouts -- two days, nothing read,
+# drafted or sent -- and nothing told the user. Short runs are routine (most
+# are under five ticks), so this waits for half an hour of failure. The page
+# is what is failing, so the self-chat cannot carry the alarm: the desktop
+# does, throttled by `notify_desktop`, and the self-chat gets the account of
+# it once the page loads again.
+TICK_ERROR_NOTIFY_AFTER = 15
+
+
+def _tick_errors_path(config: Config) -> Path:
+    return agent_dir(config) / "tick_errors.json"
+
+
+def _load_tick_errors(config: Config) -> dict:
+    try:
+        return json.loads(_tick_errors_path(config).read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _local_time(iso: str) -> str:
+    try:
+        return datetime.fromisoformat(iso).astimezone().strftime("%d %b %H:%M")
+    except (TypeError, ValueError):
+        return "?"
+
+
+def _record_tick_error(config: Config, result: dict) -> None:
+    """Count consecutive failed ticks; alert on the desktop once it matters."""
+    try:
+        state = _load_tick_errors(config)
+        state["count"] = int(state.get("count", 0)) + 1
+        state.setdefault("first_at", result["at"])
+        state["last_error"] = str(result.get("error", "")).splitlines()[0][:120]
+        if state["count"] >= TICK_ERROR_NOTIFY_AFTER and notify_desktop(
+            config, "tick_errors", "wa-agent is failing",
+            f"{state['count']} ticks in a row since "
+            f"{_local_time(state['first_at'])}: {state['last_error'][:80]}. "
+            "Nothing is being read, drafted or sent.",
+        ):
+            state["notified"] = True
+            result["actions"].append({"desktop_notice": "tick_errors",
+                                      "n_errors": state["count"]})
+        path = _tick_errors_path(config)
+        path.write_text(json.dumps(state), encoding="utf-8")
+        path.chmod(0o600)
+    except Exception:
+        pass          # the alarm must never become the failure
+
+
+def _announce_recovery(page, config: Config, result: dict) -> None:
+    """The page loads again: say what the desktop alarm was about, once."""
+    state = _load_tick_errors(config)
+    if not state:
+        return
+    if state.get("notified"):
+        try:
+            post_note(page,
+                      f"✅ wa-agent is working again. {state.get('count', '?')} "
+                      f"ticks failed in a row from "
+                      f"{_local_time(state.get('first_at', ''))} until now: "
+                      f"{state.get('last_error', '')}\n\n"
+                      "Chats that are still unread are picked up now. Anything "
+                      "you read on your phone meanwhile was not.")
+        except Exception as exc:
+            result["actions"].append({"recovery_note_failed": str(exc)})
+            return          # keep the state; the next tick says it instead
+        result["actions"].append({"recovered_after": state.get("count")})
+    try:
+        _tick_errors_path(config).unlink()
+    except OSError:
+        pass
+
+
 def _handle_pending(page, config: Config, entry: dict, result: dict) -> None:
     """Act on one pending draft's decision. Raises on browser trouble."""
     draft_id = entry["draft_id"]
@@ -150,11 +227,18 @@ def _handle_pending(page, config: Config, entry: dict, result: dict) -> None:
             # An approval that produces nothing is the "dead daemon" failure:
             # the user typed OK, the log knows why it refused, and they see
             # silence. The pre-send checks exist precisely to refuse, so say so.
+            if sent.get("clicked"):
+                # Past the click nothing is certain either way, and it is
+                # never retried: the journal already counts it as sent.
+                note = (f"⚠️ {draft_id} may NOT have arrived.\n\n"
+                        f"{sent.get('reason') or 'unknown reason'}")
+            else:
+                note = (f"⚠️ {draft_id} was NOT sent.\n\n"
+                        f"{sent.get('reason') or 'unknown reason'}\n\n"
+                        "Nothing was delivered. Send a new message in "
+                        "that chat if you still want a reply.")
             try:
-                post_note(page, f"⚠️ {draft_id} was NOT sent.\n\n"
-                                f"{sent.get('reason') or 'unknown reason'}\n\n"
-                                "Nothing was delivered. Send a new message in "
-                                "that chat if you still want a reply.")
+                post_note(page, note)
             except Exception as exc:
                 result["actions"].append({"refusal_note_failed": str(exc)})
     elif command.decision is Decision.REJECT:
@@ -297,6 +381,7 @@ def _browser_phase(config: Config, result: dict) -> dict:
                 result["actions"].append({"desktop_notice": "logged_out"})
             return result
         dismiss(page)
+        _announce_recovery(page, config, result)
 
         if _rotation_blocks(page, config, result):
             return result
@@ -493,21 +578,6 @@ def _run_for(item: QueueItem, config: Config, outbox) -> dict:
     return run_drafter(item, config)
 
 
-def _fingerprint(text: str) -> str:
-    """Letters, digits and single spaces only, casefolded.
-
-    WhatsApp renders emoji as <img> elements, and `inner_text` does not include
-    their alt text -- a note posted as "📋 GROUP DIGEST 13:16" reads back as
-    "GROUP DIGEST 13:16". Matching on the raw text therefore never succeeded,
-    so `post_note` declared every digest undelivered and the next tick posted it
-    again: ten identical digests in one afternoon. Comparing on what actually
-    survives the round trip is the fix; punctuation goes too, since "·" and "—"
-    are no more guaranteed than the emoji.
-    """
-    kept = (ch if (ch.isalnum() or ch.isspace()) else " " for ch in text)
-    return " ".join("".join(kept).split()).casefold()
-
-
 def _delivered(state: str) -> bool:
     """WhatsApp's own word for it. "Pending" and "absent" are not delivery."""
     return bool(re.search(r"read|deliver|sent", state or "", re.IGNORECASE))
@@ -533,9 +603,20 @@ def post_note(page, text: str, settle_s: float = 12.0,
     polls the same way -- see `agent._post_and_locate`.
 
     So the note is read back until it appears. Returns its message id.
+
+    Only a message that was NOT already in view counts. The match is on the
+    first 60 fingerprint characters, so an identical earlier note -- the same
+    refusal twice, or a retried warning -- used to satisfy the check by
+    itself, and a note that never posted was counted as delivered.
     """
     from .selfchat import (post as post_selfchat, read as read_selfchat,
                            wait_for_delivery)
+
+    try:
+        already = {m.msg_id for m in read_selfchat(page, limit=8, refresh=True,
+                                                   scroll=False) if m.msg_id}
+    except Exception:
+        already = set()
 
     outcome = post_selfchat(page, text)
     if outcome is not None:
@@ -552,6 +633,8 @@ def post_note(page, text: str, settle_s: float = 12.0,
             for message in reversed(read_selfchat(page, limit=8,
                                                   refresh=True,
                                                   scroll=False)):
+                if message.msg_id in already:
+                    continue
                 if needle and needle in _fingerprint(message.text or ""):
                     marker = message.msg_id
                     break
@@ -876,9 +959,20 @@ def _queue_revision(config: Config, entry: dict, instructions: str) -> dict:
     if revision > MAX_REVISIONS:
         return {"draft_id": draft_id, "edit_refused":
                 f"revision cap {MAX_REVISIONS} reached; ask in a session instead"}
+    # The redraft answers the SAME message, so it carries it. Without it the
+    # new draft had `quoted=""`, which `deliver` reads as "nothing to check":
+    # the edited-message guard was skipped for every EDIT, and the model was
+    # asked to revise a reply without being shown what it replied to.
+    quoted = str(entry.get("quoted") or "")
+    if not quoted:
+        return {"draft_id": draft_id, "edit_refused":
+                "the message it answered was not kept, so a redraft could not "
+                "be checked against it. A new message in that chat starts a "
+                "fresh draft"}
     item = QueueItem(
         queue_id=_queue_id(entry["recipient"]),
         chat=entry["recipient"],
+        messages=[{"sender": entry["recipient"], "text": quoted}],
         edit_instructions=instructions,
         previous_body=entry.get("body", ""),
         revision=revision,

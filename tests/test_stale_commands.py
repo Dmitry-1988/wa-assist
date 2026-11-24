@@ -153,7 +153,7 @@ def test_an_accepted_edit_is_acknowledged_immediately(config, monkeypatch):
     result = {"actions": []}
     tick._handle_pending(page, config,
                          {"draft_id": "#AAA", "recipient": "X", "body": "b",
-                          "revision": 0}, result)
+                          "quoted": "q", "revision": 0}, result)
     assert len(page.posted) == 1
     note = page.posted[0]
     assert "Redrafting #AAA" in note

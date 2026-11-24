@@ -183,6 +183,7 @@ def pending_drafts(config: Config, chat: str = "") -> list[dict]:
             "created_at": draft.created_at.isoformat(),
             "expires_at": draft.expires_at.isoformat(),
             "body": draft.body,
+            "quoted": draft.quoted,
             "revision": draft.revision,
         })
     return out
@@ -438,6 +439,13 @@ def deliver(page, config: Config, draft_id: str, live: bool = False) -> dict:
     def _journal_attempt() -> None:
         journal.record_send_attempt(draft.draft_id, draft.recipient)
 
+    from .messages import extract_messages
+
+    try:
+        already = {m.msg_id for m in extract_messages(page) if m.msg_id}
+    except Exception:
+        already = set()
+
     try:
         result = send_message(page, draft.recipient, draft.body,
                               dry_run=not live,
@@ -446,6 +454,58 @@ def deliver(page, config: Config, draft_id: str, live: bool = False) -> dict:
         journal.record_result(draft.draft_id, False, str(exc))
         return {"ok": False, "reason": f"refused: {exc}"}
 
+    if live and result.ok:
+        # An empty composer is not a delivered message. Self-chat posts have
+        # waited for WhatsApp's acknowledgement since 2026-09-07; replies to
+        # contacts did not, so the browser could close on a reply still
+        # "Pending" -- lost, with "sent" in the journal.
+        unconfirmed = _confirm_sent(page, draft.body, already)
+        if unconfirmed:
+            journal.record_result(draft.draft_id, False, unconfirmed)
+            return {"ok": False, "clicked": True, "reason": unconfirmed,
+                    "recipient": result.recipient}
+
     journal.record_result(draft.draft_id, result.ok, result.detail)
     return {"ok": result.ok, "dry_run": result.dry_run,
             "recipient": result.recipient, "detail": result.detail}
+
+
+def _confirm_sent(page, body: str, already: set[str],
+                  settle_s: float = 12.0, ack_s: float = 20.0) -> str:
+    """"" once WhatsApp has acknowledged the reply just sent, else why not.
+
+    Same three steps as a self-chat post: find the message -- one that was not
+    in the chat before the click -- then wait for its status to leave
+    "Pending". Nothing here retries the send: the attempt is journalled, so a
+    second click could only ever produce a duplicate.
+    """
+    from .compose import fingerprint
+    from .messages import extract_messages
+    from .selfchat import wait_for_delivery
+
+    needle = fingerprint(body)[:60]
+    deadline = time.monotonic() + settle_s
+    marker = ""
+    while not marker:
+        try:
+            for message in reversed(extract_messages(page)):
+                if not message.msg_id or message.msg_id in already:
+                    continue
+                if not needle or needle in fingerprint(message.text or ""):
+                    marker = message.msg_id
+                    break
+        except Exception:
+            pass
+        if marker or time.monotonic() >= deadline:
+            break
+        page.wait_for_timeout(500)
+    if not marker:
+        return (f"Send was clicked, but the message never appeared in the chat "
+                f"within {settle_s:g}s. Check the chat before sending it "
+                "yourself; it will not be retried.")
+    state = wait_for_delivery(page, marker, timeout_s=ack_s)
+    if not re.search(r"read|deliver|sent", state or "", re.IGNORECASE):
+        return (f"Send was clicked and the message is in the chat, but WhatsApp "
+                f"never acknowledged it (status={state!r}). Check the chat "
+                "before sending it yourself; it will not be retried.")
+    return ""

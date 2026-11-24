@@ -163,6 +163,34 @@ def test_the_helper_gets_nothing_else():
     assert set(tools) == {"mcp__workspace-mcp__list_calendars", "Bash(sleep:*)"}
 
 
+def test_the_helper_is_shut_in_like_the_drafter():
+    """It reads calendar names, which other people choose. Bash is its only
+    built-in, and `dontAsk` lets through nothing but `sleep`."""
+    cmd = reauth.helper_command("/bin/claude", "me@example.com", tries=5)
+    assert cmd[cmd.index("--tools") + 1] == "Bash"
+    assert cmd[cmd.index("--permission-mode") + 1] == "dontAsk"
+    assert cmd[cmd.index("--setting-sources") + 1] == "local"
+    assert "disableClaudeAiConnectors" in cmd[cmd.index("--settings") + 1]
+
+
+def test_verification_has_no_built_in_tools():
+    cmd = reauth.verify_command("/bin/claude", "me@example.com")
+    assert cmd[cmd.index("--tools") + 1] == ""
+    assert cmd[cmd.index("--tools") + 2].startswith("--")
+    assert cmd[cmd.index("--permission-mode") + 1] == "dontAsk"
+    assert cmd[cmd.index("--setting-sources") + 1] == "local"
+
+
+def test_both_runs_disable_file_attachment(monkeypatch, tmp_path):
+    """A calendar name could carry `@path` as easily as a message can."""
+    seen = []
+    monkeypatch.setattr(reauth.subprocess, "run",
+                        lambda *a, **k: seen.append(k.get("env") or {}) or
+                        type("R", (), {"stdout": "", "returncode": 0})())
+    reauth._verify("/bin/claude", "me@example.com", str(tmp_path))
+    assert seen[0].get("CLAUDE_CODE_DISABLE_ATTACHMENTS") == "1"
+
+
 def test_the_helper_is_told_not_to_give_up_on_the_first_failure():
     cmd = reauth.helper_command("/bin/claude", "me@example.com", tries=14)
     assert "do not stop after the first failure" in cmd[2].lower()

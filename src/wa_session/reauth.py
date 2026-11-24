@@ -205,8 +205,9 @@ def authorization_url(account: str) -> str:
 
 # The helper exists to hold a server open while a human consents. It is given
 # `sleep` for exactly that reason: a model asked to wait without the means to
-# wait simply finishes, taking its server with it. This is NOT the drafting
-# run -- that still has read-only Gmail and Calendar and nothing else.
+# wait simply finishes, taking its server with it. Bash is the only built-in it
+# gets, `dontAsk` refuses any command but `sleep`, and it is shut in the same
+# way as the drafter -- it reads calendar names, which other people choose.
 HELPER_PROMPT = (
     "Call mcp__workspace-mcp__list_calendars for {account}. If it reports that "
     "Google authentication is needed, print the authorization URL, then use "
@@ -221,9 +222,23 @@ def helper_command(binary: str, account: str, tries: int) -> list[str]:
     return [
         binary, "-p", HELPER_PROMPT.format(account=account, tries=tries),
         "--output-format", "json",
+        "--tools", "Bash",
+        *_lockdown(),
         "--allowedTools", "mcp__workspace-mcp__list_calendars", "Bash(sleep:*)",
         "--max-turns", str(tries * 3),
     ]
+
+
+def _lockdown() -> list[str]:
+    from .drafter import DRAFTER_SETTING_SOURCES, DRAFTER_SETTINGS
+    return ["--settings", DRAFTER_SETTINGS,
+            "--setting-sources", DRAFTER_SETTING_SOURCES,
+            "--permission-mode", "dontAsk"]
+
+
+def _env() -> dict:
+    from .drafter import _run_env
+    return _run_env()
 
 
 def verify_command(binary: str, account: str) -> list[str]:
@@ -235,6 +250,8 @@ def verify_command(binary: str, account: str) -> list[str]:
         f"exactly two lines: 'CALENDAR: ok' or 'CALENDAR: fail <why>', and "
         f"'GMAIL: ok' or 'GMAIL: fail <why>'.",
         "--output-format", "json",
+        "--tools", "",
+        *_lockdown(),
         "--allowedTools",
         "mcp__workspace-mcp__get_events",
         "mcp__workspace-mcp__search_gmail_messages",
@@ -255,7 +272,7 @@ def _verify(binary: str, account: str, cwd: str) -> tuple[bool, str]:
     try:
         done = subprocess.run(verify_command(binary, account),
                               capture_output=True, text=True, timeout=180,
-                              cwd=cwd)
+                              cwd=cwd, env=_env())
     except Exception as exc:
         return False, f"verification could not run: {exc}"
     report = read_result(done.stdout).strip()
@@ -305,7 +322,8 @@ def run_reauth(config, timeout_s: float = 300.0, emit=print,
     helper = subprocess.Popen(
         helper_command(binary, account, tries=14),
         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-        text=True, cwd=str(config.profile_dir.parent), stdin=subprocess.DEVNULL)
+        text=True, cwd=str(config.profile_dir.parent), stdin=subprocess.DEVNULL,
+        env=_env())
 
     shown = False
     deadline = time.monotonic() + timeout_s

@@ -161,7 +161,8 @@ def test_edit_under_the_cap_queues_a_revision(config, monkeypatch):
     from wa_session import tick as tick_mod
 
     monkeypatch.setattr(tick_mod, "retire_draft", lambda *a, **k: None)
-    entry = {"draft_id": "#AAA", "recipient": "Подруга", "body": "старый", "revision": 0}
+    entry = {"draft_id": "#AAA", "recipient": "Подруга", "body": "старый",
+             "quoted": "во сколько завтра?", "revision": 0}
     out = tick_mod._queue_revision(config, entry, "сделай короче")
     assert out["revision"] == 1
     items = read_queue(config)
@@ -169,6 +170,37 @@ def test_edit_under_the_cap_queues_a_revision(config, monkeypatch):
     assert items[0].chat == "Подруга"                  # routing preserved
     assert items[0].edit_instructions == "сделай короче"
     assert items[0].previous_body == "старый"
+    # the redraft answers the same message, and carries it
+    assert items[0].messages == [{"sender": "Подруга", "text": "во сколько завтра?"}]
+
+
+def test_an_edit_without_the_original_message_is_refused(config, monkeypatch):
+    """With no message the redraft got `quoted=""`, which `deliver` treats as
+    nothing to check: the edited-message guard was skipped for every EDIT."""
+    from wa_session import tick as tick_mod
+
+    retired = []
+    monkeypatch.setattr(tick_mod, "retire_draft",
+                        lambda c, d, why: retired.append(d))
+    entry = {"draft_id": "#AAA", "recipient": "Подруга", "body": "старый",
+             "revision": 0}
+    out = tick_mod._queue_revision(config, entry, "сделай короче")
+    assert "edit_refused" in out
+    assert retired == ["#AAA"]               # withdrawn either way
+    assert read_queue(config) == []
+
+
+def test_pending_entries_carry_the_quoted_message(config):
+    import datetime
+    from wa_session.agent import PendingDraft, pending_drafts, save_pending
+    from wa_session.approval import Draft
+
+    d = Draft(draft_id="#AAA", recipient="X", source_chat="X", body="b",
+              quoted="когда?", sources=[],
+              created_at=datetime.datetime.now(datetime.timezone.utc),
+              ttl_hours=2, revision=0)
+    save_pending(config, PendingDraft(draft=d, marker_id="m1"))
+    assert pending_drafts(config)[0]["quoted"] == "когда?"
 
 
 def test_queue_ids_are_filesystem_safe_for_any_chat_name(config):

@@ -33,6 +33,24 @@ class SendResult:
     detail: str = ""
 
 
+def fingerprint(text: str) -> str:
+    """Letters, digits and single spaces only, casefolded.
+
+    WhatsApp renders emoji as <img> elements, and `inner_text` does not include
+    their alt text -- a note posted as "📋 GROUP DIGEST 13:16" reads back as
+    "GROUP DIGEST 13:16". Matching on the raw text therefore never succeeded,
+    so `post_note` declared every digest undelivered and the next tick posted it
+    again: ten identical digests in one afternoon. Comparing on what actually
+    survives the round trip is the fix; punctuation goes too, since "·" and "—"
+    are no more guaranteed than the emoji.
+
+    Lives here because both read-backs use it: notes in the self-chat
+    (`tick.post_note`) and replies to contacts (`agent.deliver`).
+    """
+    kept = (ch if (ch.isalnum() or ch.isspace()) else " " for ch in text)
+    return " ".join("".join(kept).split()).casefold()
+
+
 def header_recipient(page) -> str:
     try:
         node = page.locator(selectors.HEADER_TITLE).first

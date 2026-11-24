@@ -1,13 +1,17 @@
 """Invoking the headless drafting run.
 
-The tool set here is the security boundary, not a suggestion. The drafter gets
-read-only MCP and NOTHING else -- no Bash, no Read, no Write, no Edit, no
-Agent. Without a shell it cannot invoke `wa-agent`, cannot drive Playwright,
-and therefore cannot post an approval into the self-chat or send anything. It
-has no filesystem at all: the queue item is inlined into the prompt and the
-answer comes back as the run's final message, which the DAEMON validates and
-writes. Its only outward channel is that one reply, whose schema refuses to
-carry a recipient.
+The command line here is the security boundary, not a suggestion. The
+drafter gets seven read-only Gmail/Calendar MCP tools and no built-in tool:
+no shell, no file tools, no Agent. Without a shell it cannot invoke
+`wa-agent`, cannot drive Playwright, and therefore cannot post an approval
+into the self-chat or send anything. The queue item is inlined into the prompt
+and the answer comes back as the run's final message, which the DAEMON
+validates and writes. Its only outward channel is that one reply, whose schema
+refuses to carry a recipient.
+
+What the CLI does with these flags is not what the lists suggest -- three
+holes on 2026-11-22 came from exactly that gap (see SECURITY.md). Assert on
+the real argv, and run tests/test_prompt_mentions.py after a CLI update.
 
 Read and Write were granted until 2026-09-02 and reached src/wa_session/, the
 package the daemon imports and executes on its next tick -- a live path from
@@ -77,6 +81,15 @@ DISALLOWED_TOOLS = ["Bash", "Read", "Write", "Edit", "NotebookEdit", "Agent",
 # setting drops claude.ai connectors, these are the pinned server's other four
 # tools, and `dontAsk` refuses anything that appears later and is not allowed.
 DRAFTER_SETTINGS = '{"disableClaudeAiConnectors": true}'
+
+# Only the project's LOCAL settings scope, which is where workspace-mcp is
+# registered. Without this the run also loads the user's own settings and MCP
+# servers: measured 2026-11-24, a user-scope server's tool was offered to the
+# drafter and `dontAsk` RAN it, because the user's allow rule pre-approved it.
+# With `local`, that server is not loaded at all and user allow rules are
+# ignored. Not `""` or `project`: both drop the local registration too, and
+# the run would start with no Gmail and no Calendar.
+DRAFTER_SETTING_SOURCES = "local"
 UNUSED_MCP_TOOLS = [
     "mcp__workspace-mcp__get_gmail_messages_content_batch",
     "mcp__workspace-mcp__get_gmail_threads_content_batch",
@@ -469,6 +482,7 @@ def run_drafter(item: QueueItem, config: Config, timeout_s: int = 300) -> dict:
         "--max-turns", "16",
         "--tools", "",
         "--settings", DRAFTER_SETTINGS,
+        "--setting-sources", DRAFTER_SETTING_SOURCES,
         "--permission-mode", "dontAsk",
         "--allowedTools", *allowed_tools(config),
         "--disallowedTools", *DISALLOWED_TOOLS, *UNUSED_MCP_TOOLS,

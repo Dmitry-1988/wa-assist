@@ -100,6 +100,8 @@ def test_the_drafter_command_line_grants_only_its_seven_tools(config, monkeypatc
     assert cmd[cmd.index("--tools") + 1] == ""
     assert cmd[cmd.index("--tools") + 2].startswith("--")
     assert cmd[cmd.index("--permission-mode") + 1] == "dontAsk"
+    # the user's own MCP servers and allow rules stay out (2026-11-24)
+    assert cmd[cmd.index("--setting-sources") + 1] == "local"
     settings = json.loads(cmd[cmd.index("--settings") + 1])
     assert settings["disableClaudeAiConnectors"] is True
 
@@ -407,9 +409,14 @@ def test_a_note_posted_with_emoji_is_confirmed_end_to_end(monkeypatch):
     import wa_session.selfchat as selfchat
     monkeypatch.setattr(selfchat, "post",
                         lambda p, text, dry_run=False: _Result(True, detail="sent"))
-    # the chat echoes the note back WITHOUT its emoji, as WhatsApp does
-    monkeypatch.setattr(selfchat, "read",
-                        lambda p, limit=60, **kw: [M("GROUP DIGEST 13:16 building")])
+    # the chat echoes the note back WITHOUT its emoji, as WhatsApp does --
+    # and only after it was posted: post_note reads once beforehand
+    calls = []
+
+    def read(p, limit=60, **kw):
+        calls.append(1)
+        return [] if len(calls) == 1 else [M("GROUP DIGEST 13:16 building")]
+    monkeypatch.setattr(selfchat, "read", read)
     assert post_note(Page(), "📋 GROUP DIGEST 13:16\n\nbuilding") == "m9"
 
 
