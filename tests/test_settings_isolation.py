@@ -21,7 +21,9 @@ import pytest
 from wa_session import drafter
 
 CLAUDE = drafter.claude_binary()
-pytestmark = pytest.mark.skipif(CLAUDE is None, reason="claude CLI not installed")
+REQUIRED = bool(os.environ.get("WA_REQUIRE_CLAUDE_CLI"))
+pytestmark = pytest.mark.skipif(CLAUDE is None and not REQUIRED,
+                                reason="claude CLI not installed")
 
 SERVER = '''
 import json, sys
@@ -69,6 +71,7 @@ def _run(tmp_path, extra: list[str], ask_for: str):
 
     Returns (tools offered to the model, servers whose tool actually ran).
     """
+    assert CLAUDE, "WA_REQUIRE_CLAUDE_CLI is set but no claude CLI was found"
     home, project = tmp_path / "home", tmp_path / "project"
     (home / ".claude").mkdir(parents=True)
     project.mkdir()

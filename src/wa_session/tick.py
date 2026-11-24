@@ -16,9 +16,12 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import shutil
 import time
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.error import HTTPError
 
 from .agent import (
     agent_dir,
@@ -62,7 +65,7 @@ from .rotation import (
 )
 from .session import first_page, persistent_context
 from .state import read_state
-from .watermarks import advance, read_reported, unseen
+from .watermarks import NO_OVERLAP, advance, read_reported, unseen
 
 PAGE_READY_TIMEOUT_S = 30.0
 
@@ -81,6 +84,10 @@ STALL_RENOTIFY_ATTEMPTS = 180
 # this window or the digest cannot tell what it has already covered; 15 rows
 # (the reply default) was routinely outrun by a busy group between digests.
 SUMMARY_CAPTURE_DEPTH = 60
+# When the last reported message is not within SUMMARY_CAPTURE_DEPTH, read
+# that one group again this deep before calling the digest incomplete. Only
+# then: scrolling costs ~6s a screen, and most groups never need it.
+SUMMARY_DEEP_DEPTH = 250
 # And how much of that may reach one prompt. Hitting this is reported, not
 # silently trimmed -- the old `fresh[-40:]` dropped the oldest messages and
 # then advanced the watermark past them, so they were never summarised at all.
@@ -113,6 +120,8 @@ def run_tick(config: Config | None = None) -> dict:
         return result
     except Exception as exc:  # a daemon must not die on one bad tick
         result["error"] = f"{type(exc).__name__}: {exc}"
+        if "Page.goto" in result["error"]:
+            result["diag"] = _diagnose_load_failure(config)
         _record_tick_error(config, result)
         return result
 
@@ -169,6 +178,32 @@ def _local_time(iso: str) -> str:
         return "?"
 
 
+def _diagnose_load_failure(config: Config) -> dict:
+    """What a failed page load can still tell us, logged as `diag`.
+
+    The cause of the long `Page.goto` outages is not known, and by the time
+    anyone looks the evidence is gone. One plain HTTPS request from this Mac
+    separates "the network or WhatsApp is down" from "the browser is stuck",
+    and the free disk space rules the third suspect in or out.
+    """
+    out: dict = {}
+    started = time.monotonic()
+    try:
+        request = urllib.request.Request(WHATSAPP_URL, method="HEAD")
+        with urllib.request.urlopen(request, timeout=8) as response:
+            out["https_status"] = response.status
+    except HTTPError as exc:
+        out["https_status"] = exc.code
+    except Exception as exc:
+        out["https_error"] = f"{type(exc).__name__}: {exc}"[:120]
+    out["https_s"] = round(time.monotonic() - started, 2)
+    try:
+        out["disk_free_mb"] = shutil.disk_usage(config.profile_dir.parent).free // 2**20
+    except OSError:
+        pass
+    return out
+
+
 def _record_tick_error(config: Config, result: dict) -> None:
     """Count consecutive failed ticks; alert on the desktop once it matters."""
     try:
@@ -176,11 +211,18 @@ def _record_tick_error(config: Config, result: dict) -> None:
         state["count"] = int(state.get("count", 0)) + 1
         state.setdefault("first_at", result["at"])
         state["last_error"] = str(result.get("error", "")).splitlines()[0][:120]
+        diag = result.get("diag") or {}
+        if "https_error" in diag:
+            network = " web.whatsapp.com is unreachable from this Mac."
+        elif "https_status" in diag:
+            network = " The network is fine; the browser is what fails."
+        else:
+            network = ""
         if state["count"] >= TICK_ERROR_NOTIFY_AFTER and notify_desktop(
             config, "tick_errors", "wa-agent is failing",
             f"{state['count']} ticks in a row since "
-            f"{_local_time(state['first_at'])}: {state['last_error'][:80]}. "
-            "Nothing is being read, drafted or sent.",
+            f"{_local_time(state['first_at'])}: {state['last_error'][:80]}."
+            f"{network} Nothing is being read, drafted or sent.",
         ):
             state["notified"] = True
             result["actions"].append({"desktop_notice": "tick_errors",
@@ -505,6 +547,17 @@ def _collect_group_messages(page, config: Config, result: dict) -> str | None:
         # the user once is never new again, however far back the capture went.
         fresh = unseen(captured["messages"], marks.get(entry.name),
                        cap=SUMMARY_MAX_MESSAGES)
+        if fresh.gap and fresh.reason == NO_OVERLAP:
+            # A busy week outran the capture (2026-11-22: two of five groups).
+            # Marks advance on a posted digest, so whatever is skipped now is
+            # never reported -- reading further back is the only remedy.
+            deeper = read_chat(page, entry.name, depth=SUMMARY_DEEP_DEPTH)
+            if deeper.get("ok"):
+                fresh = unseen(deeper["messages"], marks.get(entry.name),
+                               cap=SUMMARY_MAX_MESSAGES)
+                result["actions"].append({
+                    "groupsum_deep_capture": entry.name,
+                    "recovered": fresh.reason != NO_OVERLAP})
         if not fresh.messages:
             unchanged.append(entry.name)
             continue

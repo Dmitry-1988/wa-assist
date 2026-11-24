@@ -262,3 +262,51 @@ def test_a_group_with_nothing_new_never_reaches_a_paid_run(config, monkeypatch):
     assert _collect_group_messages(FakePage(), config, result) is None
     assert read_queue(config) == []
     assert {"groupsum_unchanged": ["G1"]} in result["actions"]
+
+
+def test_a_mark_out_of_view_is_found_by_reading_further_back(config, monkeypatch):
+    """2026-11-22: two of five groups outran the 60-row capture in a week.
+    The mark advances once the digest posts, so what was skipped then was
+    never reported. Reading that group again, deeper, recovers it."""
+    from wa_session.tick import SUMMARY_DEEP_DEPTH
+
+    advance(config, [{"chat": "G1", "messages": msgs("old")}])
+    depths = []
+
+    def fake_read(page, name, depth=10):
+        depths.append(depth)
+        if depth >= SUMMARY_DEEP_DEPTH:
+            return {"ok": True, "messages": msgs("old", "n0", "n1", "n2")}
+        return {"ok": True, "messages": msgs("n1", "n2")}
+
+    monkeypatch.setattr("wa_session.tick.read_chat", fake_read)
+    result = {"actions": []}
+    _collect_group_messages(FakePage(), config, result)
+
+    assert depths == [SUMMARY_CAPTURE_DEPTH, SUMMARY_DEEP_DEPTH]
+    assert not [a for a in result["actions"] if "groupsum_window_gap" in a]
+    assert {"groupsum_deep_capture": "G1", "recovered": True} in result["actions"]
+    item = read_queue(config)[0]
+    assert [m["msg_id"] for m in item.messages[0]["messages"]] == ["n0", "n1", "n2"]
+
+
+def test_a_mark_too_far_back_even_for_the_deep_read_is_still_reported(config,
+                                                                      monkeypatch):
+    advance(config, [{"chat": "G1", "messages": msgs("old")}])
+    monkeypatch.setattr("wa_session.tick.read_chat",
+                        lambda page, name, depth=10: {"ok": True,
+                                                      "messages": msgs("n1", "n2")})
+    result = {"actions": []}
+    _collect_group_messages(FakePage(), config, result)
+    assert {"groupsum_deep_capture": "G1", "recovered": False} in result["actions"]
+    assert [a for a in result["actions"] if "groupsum_window_gap" in a]
+
+
+def test_a_group_without_a_gap_is_read_once(config, monkeypatch):
+    advance(config, [{"chat": "G1", "messages": msgs("a")}])
+    depths = []
+    monkeypatch.setattr("wa_session.tick.read_chat",
+                        lambda page, name, depth=10: depths.append(depth) or
+                        {"ok": True, "messages": msgs("a", "b")})
+    _collect_group_messages(FakePage(), config, {"actions": []})
+    assert depths == [SUMMARY_CAPTURE_DEPTH]

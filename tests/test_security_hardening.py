@@ -15,8 +15,7 @@ from wa_session.agent import _fresh_draft_id
 from wa_session.approval import Draft, Decision, Journal, resolve
 from wa_session.config import Config
 from wa_session.drafter import (DISALLOWED_TOOLS, SUMMARY_DISALLOWED_TOOLS,
-                                allowed_tools, extract_answer,
-                                summary_allowed_tools)
+                                allowed_tools, extract_answer)
 from wa_session.rotation import _for_session, notices_path
 from wa_session.state import SessionState
 
@@ -44,10 +43,6 @@ def test_the_drafter_has_no_filesystem_tools(config):
                                      if t.startswith("mcp__")]
 
 
-def test_the_summariser_has_no_tools_at_all():
-    assert summary_allowed_tools() == []
-
-
 def test_the_summariser_command_line_grants_no_tools(config, monkeypatch):
     """Asserts the argv, because correct Python lists still built a shell.
 
@@ -72,11 +67,12 @@ def test_the_summariser_command_line_grants_no_tools(config, monkeypatch):
     assert cmd[cmd.index("--tools") + 1] == ""
     assert cmd[cmd.index("--tools") + 2].startswith("--")
     assert "--strict-mcp-config" in cmd and "--mcp-config" not in cmd
+    assert cmd[cmd.index("--setting-sources") + 1] == "local"
     denied = cmd.index("--disallowedTools") + 1
     assert cmd[denied:] == SUMMARY_DISALLOWED_TOOLS
 
 
-def test_the_drafter_command_line_grants_only_its_seven_tools(config, monkeypatch):
+def test_the_drafter_command_line_grants_only_its_six_tools(config, monkeypatch):
     """`--allowedTools` pre-approves; it does not limit what is available.
 
     Until this was asserted the drafter also had Grep over the project root,
@@ -107,13 +103,15 @@ def test_the_drafter_command_line_grants_only_its_seven_tools(config, monkeypatc
 
     allow, deny = cmd.index("--allowedTools"), cmd.index("--disallowedTools")
     assert cmd[allow + 1:deny] == allowed_tools(config)
-    assert len(allowed_tools(config)) == 7
+    assert len(allowed_tools(config)) == 6
     denied = set(cmd[deny + 1:])
     assert set(DISALLOWED_TOOLS) <= denied
     for extra in ("start_google_auth", "list_gmail_labels",
                   "get_gmail_messages_content_batch",
                   "get_gmail_threads_content_batch"):
         assert f"mcp__workspace-mcp__{extra}" in denied
+    # saves to disk and returns a path the run cannot open (2026-11-24)
+    assert "mcp__workspace-mcp__get_gmail_attachment_content" in denied
 
 
 @pytest.mark.parametrize("tool", ["Read", "Write", "Edit", "Bash", "Agent"])

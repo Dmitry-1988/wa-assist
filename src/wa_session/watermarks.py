@@ -95,6 +95,12 @@ def write_reported(config: Config, state: dict[str, ChatState]) -> None:
         pass
 
 
+# The gap that a deeper capture can repair: the last reported message is
+# simply further up than this capture reached.
+NO_OVERLAP = ("nothing in view had been reported before; anything between the "
+              "last digest and these is not covered")
+
+
 @dataclass(frozen=True)
 class Window:
     """What to report, what to read for context, and what could not be reached."""
@@ -162,9 +168,7 @@ def unseen(messages: list[dict], state: ChatState | None,
 
     if seen:
         return Window(messages=_cap(fresh, cap), context=[], gap=True,
-                      reason="nothing in view had been reported before; "
-                             "anything between the last digest and these is "
-                             "not covered")
+                      reason=NO_OVERLAP)
     if cap is not None and len(fresh) > cap:
         return Window(messages=fresh[-cap:], context=[], gap=True,
                       reason=f"{len(fresh) - cap} older message(s) left out to "

@@ -91,3 +91,47 @@ def test_a_failing_tick_is_counted(config, monkeypatch):
     out = t.run_tick(config)
     assert "TimeoutError" in out["error"]
     assert t._load_tick_errors(config)["count"] == 1
+
+
+def test_a_failed_page_load_records_what_the_network_said(config, monkeypatch):
+    """The long outages have no known cause; this is the evidence for next time."""
+    import wa_session.tick as t
+
+    class Answer:
+        status = 200
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    monkeypatch.setattr(t.urllib.request, "urlopen", lambda req, timeout: Answer())
+
+    def boom(config, result):
+        raise TimeoutError("Page.goto: Timeout 30000ms exceeded.")
+    monkeypatch.setattr(t, "_browser_phase", boom)
+    out = t.run_tick(config)
+    assert out["diag"]["https_status"] == 200
+    assert "disk_free_mb" in out["diag"]
+
+
+def test_the_alarm_says_which_side_is_failing(config, monkeypatch):
+    notices = []
+    monkeypatch.setattr(tick, "notify_desktop",
+                        lambda *a, **k: notices.append(a[3]) or True)
+    for i in range(tick.TICK_ERROR_NOTIFY_AFTER):
+        tick._record_tick_error(config, {
+            "at": f"2026-11-24T05:{i:02d}:00+00:00", "actions": [],
+            "error": "TimeoutError: Page.goto: Timeout 30000ms exceeded.",
+            "diag": {"https_error": "URLError: no route"}})
+    assert "unreachable from this Mac" in notices[0]
+
+
+def test_other_errors_are_not_probed(config, monkeypatch):
+    import wa_session.tick as t
+
+    def refuse(*a, **k):
+        raise AssertionError("only a page load failure is probed")
+    monkeypatch.setattr(t.urllib.request, "urlopen", refuse)
+
+    def boom(config, result):
+        raise KeyError("draft_id")
+    monkeypatch.setattr(t, "_browser_phase", boom)
+    assert "diag" not in t.run_tick(config)

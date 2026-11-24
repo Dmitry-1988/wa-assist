@@ -1,7 +1,7 @@
 """Invoking the headless drafting run.
 
 The command line here is the security boundary, not a suggestion. The
-drafter gets seven read-only Gmail/Calendar MCP tools and no built-in tool:
+drafter gets six read-only Gmail/Calendar MCP tools and no built-in tool:
 no shell, no file tools, no Agent. Without a shell it cannot invoke
 `wa-agent`, cannot drive Playwright, and therefore cannot post an approval
 into the self-chat or send anything. The queue item is inlined into the prompt
@@ -28,6 +28,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -43,9 +44,6 @@ MCP_TOOLS = [
     "mcp__workspace-mcp__search_gmail_messages",
     "mcp__workspace-mcp__get_gmail_message_content",
     "mcp__workspace-mcp__get_gmail_thread_content",
-    # Invoice amounts often live only inside PDF attachments; this is a
-    # read-only fetch, so granting it does not widen the capability set.
-    "mcp__workspace-mcp__get_gmail_attachment_content",
     "mcp__workspace-mcp__list_calendars",
     "mcp__workspace-mcp__get_events",
     "mcp__workspace-mcp__query_freebusy",
@@ -95,6 +93,11 @@ UNUSED_MCP_TOOLS = [
     "mcp__workspace-mcp__get_gmail_threads_content_batch",
     "mcp__workspace-mcp__list_gmail_labels",
     "mcp__workspace-mcp__start_google_auth",
+    # Saves the attachment to disk and returns a PATH -- which a run with no
+    # file tools cannot open. Useless to the drafter, and a disk write for
+    # nothing. Granted until 2026-11-24 for invoices in PDFs; it never could
+    # deliver them once Read was gone.
+    "mcp__workspace-mcp__get_gmail_attachment_content",
 ]
 
 # A drafting run whose MCP server failed to connect still exits 0: Claude runs
@@ -257,12 +260,22 @@ def tool_failure(event: dict) -> str:
     return ""
 
 
-def _run_env() -> dict:
-    """The CLI expands `@path` in a prompt into that file, with no tool call.
+def _run_env(extra: dict | None = None) -> dict:
+    """The environment every model run gets.
 
-    Prompts here carry other people's text, so expansion must be off.
+    * The CLI expands `@path` in a prompt into that file, with no tool call.
+      Prompts here carry other people's text, so expansion must be off.
+    * Auto-memory and CLAUDE.md stay out. The memory index reached both runs
+      until 2026-11-24 -- private notes in a prompt that writes to a contact,
+      and nothing the drafter needed: name spellings live in style.json.
+      CLAUDE.md is the developer guide and the drafting rules are in the
+      prompt itself.
     """
-    return {**os.environ, "CLAUDE_CODE_DISABLE_ATTACHMENTS": "1"}
+    return {**os.environ,
+            "CLAUDE_CODE_DISABLE_ATTACHMENTS": "1",
+            "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1",
+            "CLAUDE_CODE_DISABLE_CLAUDE_MDS": "1",
+            **(extra or {})}
 
 
 def _event(line: str) -> dict | None:
@@ -489,15 +502,23 @@ def run_drafter(item: QueueItem, config: Config, timeout_s: int = 300) -> dict:
     ]
     summary = {"queue_id": item.queue_id, "cmd": shlex.join(cmd[:2]) + " …"}
 
-    # Spawn again while the only complaint is that the server had not finished
-    # connecting. Anything else -- a good run, a definitive refusal, an auth
-    # failure -- is returned as it stands.
-    for attempt in range(1, HANDSHAKE_RETRIES + 2):
-        outcome = _attempt_draft(cmd, summary, item, config, timeout_s)
-        if not handshake_retryable(outcome.get("context_unavailable", "")):
-            break
-        if attempt <= HANDSHAKE_RETRIES:
-            time.sleep(HANDSHAKE_RETRY_DELAY_S)
+    # workspace-mcp writes a message fetched with `full=True` to disk and hands
+    # back the path. The server inherits this environment, so its storage is a
+    # folder that lives exactly as long as this run.
+    scratch = tempfile.mkdtemp(prefix="wa-mcp-")
+    env = _run_env({"WORKSPACE_ATTACHMENT_DIR": scratch})
+    try:
+        # Spawn again while the only complaint is that the server had not
+        # finished connecting. Anything else -- a good run, a definitive
+        # refusal, an auth failure -- is returned as it stands.
+        for attempt in range(1, HANDSHAKE_RETRIES + 2):
+            outcome = _attempt_draft(cmd, summary, item, config, timeout_s, env)
+            if not handshake_retryable(outcome.get("context_unavailable", "")):
+                break
+            if attempt <= HANDSHAKE_RETRIES:
+                time.sleep(HANDSHAKE_RETRY_DELAY_S)
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
     if attempt > 1:
         # Record how many spawns it took. A race that is quietly recovered from
         # every tick is still a race, and without this it reads as a clean run.
@@ -506,12 +527,14 @@ def run_drafter(item: QueueItem, config: Config, timeout_s: int = 300) -> dict:
 
 
 def _attempt_draft(cmd: list[str], summary: dict, item: QueueItem,
-                   config: Config, timeout_s: int) -> dict:
+                   config: Config, timeout_s: int,
+                   env: dict | None = None) -> dict:
     """One spawn of the drafting run. See `run_drafter` for the retry policy."""
     try:
         proc = subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-            bufsize=1, cwd=str(config.profile_dir.parent), env=_run_env(),
+            bufsize=1, cwd=str(config.profile_dir.parent),
+            env=env or _run_env(),
         )
     except FileNotFoundError:
         return {**summary, "ok": False, "error": "claude CLI not found on PATH"}
@@ -605,15 +628,8 @@ def _attempt_draft(cmd: list[str], summary: dict, item: QueueItem,
 # chatter does not need your mail or calendar, and group chats are the
 # untrusted-input leg of the trifecta. With no private data reachable and no
 # way to send, an injected message can at worst produce an odd summary in your
-# own self-chat.
-def summary_allowed_tools(queue_file=None, out_file=None) -> list[str]:
-    """No tools whatsoever.
-
-    The digest run reads group chatter from people the user has never met and
-    needs nothing but the text it is handed. Giving it a filesystem was the
-    shortest injection route in the whole system.
-    """
-    return []
+# own self-chat. It gets no tools at all: see the command line in
+# `run_summarizer`, which is what the CLI actually obeys.
 SUMMARY_DISALLOWED_TOOLS = [
     "Bash", "Read", "Write", "Edit", "NotebookEdit", "Agent", "WebFetch",
     "WebSearch",
@@ -668,7 +684,7 @@ COMPRESS -- never restate a message in full and never walk through it sentence
 by sentence. A chat with one message deserves one short bullet, not a
 paragraph. Drop pleasantries, agreement ("nice idea!") and anything the user
 cannot act on. Aim for under 120 words across the WHOLE digest; never exceed
-250. A digest that takes longer to read than the messages themselves has
+150. A digest that takes longer to read than the messages themselves has
 failed at its job.
 
 LANGUAGE: write the whole digest in ENGLISH. These groups are mostly Hebrew --
@@ -689,17 +705,51 @@ you cannot send it to anyone, and you are not drafting a reply to anybody.
 """
 
 
+# The prompt's own ceiling. The model treats "aim for 120" as a suggestion:
+# five groups produced 186 words on 2026-11-22. Above this, one shortening
+# rerun -- and if that fails or is still long, the long digest is posted
+# anyway: a digest that is too long beats one that never arrives.
+DIGEST_WORD_LIMIT = 150
+
+
 def run_summarizer(config: Config, item: QueueItem, timeout_s: int = 420) -> dict:
     """Digest one summary queue item. No tools, no filesystem, no MCP."""
     binary = claude_binary()
     if binary is None:
         return {"queue_id": item.queue_id, "ok": False,
                 "error": "claude CLI not found"}
+    outcome, submission = _summarize_once(binary, config, item, timeout_s)
+    if submission is None:
+        return outcome
+    words = len(submission.body.split())
+    outcome["digest_words"] = words
+    if words > DIGEST_WORD_LIMIT:
+        retry, shorter = _summarize_once(binary, config, item, timeout_s,
+                                         too_long=words)
+        if shorter is not None:
+            outcome = {**retry, "digest_words": len(shorter.body.split()),
+                       "shortened_from": words}
+            submission = shorter
+        else:
+            outcome["shorten_failed"] = retry.get("error") or retry.get("stderr", "")
+    write_submission(config, item.queue_id, submission)
+    return outcome
+
+
+def _summarize_once(binary: str, config: Config, item: QueueItem,
+                    timeout_s: int, too_long: int = 0):
+    """One summariser run. Returns (log entry, submission or None)."""
+    prompt = build_summary_prompt(item.messages, item.queue_id)
+    if too_long:
+        prompt += (f"\n\nYOUR FIRST DIGEST WAS {too_long} WORDS. The limit is "
+                   f"{DIGEST_WORD_LIMIT}. Write it again, shorter: fewer and "
+                   "shorter bullets, every chat still covered, same rules.\n")
     cmd = [
-        binary, "-p", build_summary_prompt(item.messages, item.queue_id),
+        binary, "-p", prompt,
         "--output-format", "json",
         "--max-turns", "10",
         "--tools", "", "--strict-mcp-config",
+        "--setting-sources", DRAFTER_SETTING_SOURCES,
         "--disallowedTools", *SUMMARY_DISALLOWED_TOOLS,
     ]
     try:
@@ -708,10 +758,11 @@ def run_summarizer(config: Config, item: QueueItem, timeout_s: int = 420) -> dic
                               cwd=str(config.profile_dir.parent))
     except subprocess.TimeoutExpired:
         return {"queue_id": item.queue_id, "ok": False,
-                "error": "summarizer timed out"}
+                "error": "summarizer timed out"}, None
     if proc.returncode != 0:
         return {"queue_id": item.queue_id, "ok": False,
-                "returncode": proc.returncode, "stderr": (proc.stderr or "")[-300:]}
+                "returncode": proc.returncode,
+                "stderr": (proc.stderr or "")[-300:]}, None
     try:
         envelope = json.loads(proc.stdout or "{}")
         answer = extract_answer(envelope.get("result") or "")
@@ -719,7 +770,6 @@ def run_summarizer(config: Config, item: QueueItem, timeout_s: int = 420) -> dic
                                       item.queue_id)
     except (ValueError, ContractError) as exc:
         return {"queue_id": item.queue_id, "ok": False,
-                "error": f"unusable reply: {exc}"}
-    write_submission(config, item.queue_id, submission)
+                "error": f"unusable reply: {exc}"}, None
     return {"queue_id": item.queue_id, "ok": True,
-            "returncode": proc.returncode}
+            "returncode": proc.returncode}, submission

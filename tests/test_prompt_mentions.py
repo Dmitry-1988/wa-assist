@@ -25,7 +25,10 @@ from wa_session.config import Config
 from wa_session.pipeline import QueueItem
 
 CLAUDE = drafter.claude_binary()
-pytestmark = pytest.mark.skipif(CLAUDE is None, reason="claude CLI not installed")
+# CI sets this, so the check cannot pass by quietly skipping.
+REQUIRED = bool(os.environ.get("WA_REQUIRE_CLAUDE_CLI"))
+pytestmark = pytest.mark.skipif(CLAUDE is None and not REQUIRED,
+                                reason="claude CLI not installed")
 
 REPLY = [
     {"type": "message_start", "message": {
@@ -87,9 +90,17 @@ def model_requests(monkeypatch):
 
 def _leaked(run, tmp_path, monkeypatch, bodies) -> set[str]:
     """Run on hostile messages; return which canary files reached the model."""
+    assert CLAUDE, "WA_REQUIRE_CLAUDE_CLI is set but no claude CLI was found"
     root, home = tmp_path / "project", tmp_path / "home"
     (root / ".hidden").mkdir(parents=True)
     home.mkdir()
+    # Context the CLI loads by itself, with no mention needed. The memory
+    # index reached both runs until 2026-11-24.
+    (root / "CLAUDE.md").write_text("CANARY-claude_md-7731\n", encoding="utf-8")
+    slug = str(root.resolve()).replace("/", "-").replace(".", "-")
+    memory = home / ".claude" / "projects" / slug / "memory"
+    memory.mkdir(parents=True)
+    (memory / "MEMORY.md").write_text("CANARY-memory-7731\n", encoding="utf-8")
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setattr(drafter, "claude_binary", lambda: CLAUDE)
     # The throwaway HOME has no workspace-mcp, and this is not a test of it.
@@ -123,7 +134,8 @@ def _leaked(run, tmp_path, monkeypatch, bodies) -> set[str]:
     sent = "".join(bodies)
     # Without this, a CLI that never reached the API would read as "no leak".
     assert "Mallory" in sent, "the prompt never reached the fake API"
-    return {name for name in files if f"CANARY-{name}-7731" in sent}
+    return {name for name in [*files, "claude_md", "memory"]
+            if f"CANARY-{name}-7731" in sent}
 
 
 @pytest.mark.parametrize("run", ["drafter", "summarizer"])
@@ -138,6 +150,8 @@ def test_the_canary_does_detect_a_leak(run, tmp_path, monkeypatch, model_request
     If this fails, the test above proves nothing any more: the CLI changed how
     it expands mentions, and the canary needs rewriting to match.
     """
-    monkeypatch.setattr(drafter, "_run_env", lambda: dict(os.environ), raising=False)
+    monkeypatch.setattr(drafter, "_run_env",
+                        lambda extra=None: {**os.environ, **(extra or {})},
+                        raising=False)
     assert {"relative", "hidden", "home", "absolute"} <= _leaked(
         run, tmp_path, monkeypatch, model_requests)

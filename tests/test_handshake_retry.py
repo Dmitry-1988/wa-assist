@@ -74,7 +74,7 @@ class _Spawner:
         self.outcomes = list(outcomes)
         self.calls = 0
 
-    def __call__(self, cmd, summary, item, config, timeout_s):
+    def __call__(self, cmd, summary, item, config, timeout_s, env=None):
         self.calls += 1
         outcome = self.outcomes[min(self.calls - 1, len(self.outcomes) - 1)]
         return {**summary, **outcome}
