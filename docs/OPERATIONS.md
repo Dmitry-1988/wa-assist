@@ -128,7 +128,7 @@ half an hour — the entries looked merely idle.
 |---|---|
 | `queued_for_drafting` | a chat was captured and handed to the drafter |
 | `drafted` | a draft was posted to your self-chat, with its id |
-| `sent` | an approved draft was delivered |
+| `sent` | an approved draft was sent and WhatsApp acknowledged it |
 | `rejected` | you said `NO` |
 | `edit_queued`, `revision` | you said `EDIT`; a redraft is queued |
 | `summary_posted` | a group digest reached the self-chat |
@@ -139,6 +139,7 @@ half an hour — the entries looked merely idle.
 | `unmonitored_unread` | unread chats the allowlist does not cover |
 | `rotation_warning` | a session-expiry warning was posted |
 | `stale_command` | a command named a sent/withdrawn/expired draft |
+| `recovered_after` | the page loads again after a failure alarm; the self-chat got the account |
 
 ### Things that need you
 
@@ -150,8 +151,10 @@ half an hour — the entries looked merely idle.
 | `handshake_attempts` | the server was still connecting and the run was spawned again; >1 means the race was lost at least once | nothing if the run then succeeded; if it keeps appearing, the server is starting too slowly |
 | `not_queued` | the newest message is your own, or has no text (a photo) | nothing to answer; it re-queues when they write again |
 | `stalled` | a reply failed to draft six times running; repeats ~6h apart while it lasts (`notice` counts them, `attempts` how long) | read the note — it quotes the actual reason; the message is still queued |
-| `edit_refused` | the 5-revision cap was reached | redraft in an interactive session |
+| `edit_refused` | the 5-revision cap was reached, or the draft predates 2026-11-24 and its original message was not kept | a new message in that chat starts a fresh draft |
 | `sent: {ok: false}` | a pre-send check refused; the self-chat says why | usually an edited source message |
+| `sent: {ok: false, clicked: true}` | send was clicked but WhatsApp never acknowledged it; it may or may not have arrived | look in the chat; it is never retried |
+| `desktop_notice: tick_errors` | 15+ ticks in a row failed; repeats hourly while it lasts | read `error`; see [timeouts](#pagegoto-timeouts-come-in-bursts) |
 | `session_overdue_hours` | past the rotation policy | `uv run wa-login --reset` |
 
 ### Things that are usually fine
@@ -166,7 +169,8 @@ half an hour — the entries looked merely idle.
 
 `propose_failed`, `summary_post_failed`, `post_failed`, `poll_failed`,
 `rejected_outbox`, `rejected_summary`, `stale_notice_failed`,
-`rotation_warning_failed`, `edit_ack_failed`.
+`rotation_warning_failed`, `edit_ack_failed`, `refusal_note_failed`,
+`recovery_note_failed`.
 
 `propose_failed` naming a message id means a draft reached your self-chat but
 was never armed — `OK` on it does nothing, and it is not in `pending`. The
@@ -198,6 +202,7 @@ Everything lives in `.wa-agent/`, mode `0700`, gitignored.
 | `digest_seen.json` | every message id already reported, per group | yes, but the next digest repeats everything |
 | `journal.jsonl` | append-only record of every draft, command, send | **no** — this is what stops a double send |
 | `rotation.json` | which expiry warnings have been given | yes, warnings may repeat |
+| `tick_errors.json` | consecutive failed ticks, while a run of them lasts | yes, the count restarts |
 | `inbox.json` | last tick's view of what is waiting | yes |
 | `queue/`, `outbox/` | work in flight | only when empty |
 | `draft_XXX.json` | one file per draft ever posted | yes, once the id is retired or sent |
@@ -310,13 +315,20 @@ and the queued message survives.
 
 Loading web.whatsapp.com times out at 30s sometimes, and not evenly: 295
 occurrences on 10 Sep and 275 on 12 Sep against roughly 590 ticks each of those
-days, versus 1 to 31 on the surrounding days. The daemon logs the error, does
-nothing that tick, and recovers on the next; digests and drafts on those days
-still went out.
+days, versus 1 to 31 on the surrounding days. Most runs of failures last under
+five ticks and cost nothing.
 
-The cause is not established. Candidates are the machine sleeping, a network
-drop, and WhatsApp throttling repeated loads. Worth investigating only if a
-burst coincides with something actually being lost, which so far it has not.
+**Some do not, and those lose real time.** 2026-11-18 to 11-20 failed 1249
+ticks in a row: two days in which nothing was read, drafted or sent. On 11-24,
+156 ticks (6½ hours). Messages that stayed unread are picked up afterwards;
+anything read on the phone meanwhile is not. Until 2026-11-24 none of this
+reached the user. Now 15 failed ticks in a row (30 minutes) raise a desktop
+notice, repeated hourly, and the first tick that loads the page posts one
+self-chat note with the span.
+
+The cause is not established. The network and web.whatsapp.com answered
+normally right after the 11-24 run ended by itself. Candidates are WhatsApp
+throttling repeated loads, a network drop and the machine sleeping.
 
 These are current behaviour, not bugs with a fix pending. They are listed so a
 surprise is a recognised one.
@@ -518,6 +530,9 @@ want a reply.
 - A Russian-layout `ОК` (Cyrillic О К) **is** accepted — it looks identical to
   the Latin one, so it is treated as an approval.
 - If the draft was superseded, sent or expired, you now get a note saying so.
+- "may NOT have arrived" means the send was clicked but WhatsApp never
+  acknowledged it. Look in the chat: it is never retried, so a duplicate is
+  only possible if you send it yourself.
 - Drafts expire two hours after posting.
 
 Two fixed bugs produced exactly this symptom, both silent, and they are worth
@@ -628,7 +643,8 @@ jq -c 'select(.error) | {at, error}' .wa-agent/daemon.log | tail -5
 
 Do not filter the log down to `{at, actions}` while diagnosing — that is
 exactly what hides this. One such failure ran for half an hour looking like a
-quiet daemon while every GROUPSUM went unanswered.
+quiet daemon while every GROUPSUM went unanswered. After 15 failed ticks in a
+row you also get a desktop notice.
 
 ```bash
 launchctl print gui/$(id -u)/<your-label> | grep -E 'state|runs|last exit'

@@ -16,7 +16,7 @@ user approves each one in his own WhatsApp self-chat before anything is sent.
 The drafter gets **seven read-only Gmail/Calendar MCP tools** and no built-ins.
 The queue item is inlined into the prompt and the answer comes back as the
 run's final message, which the DAEMON validates and writes. The summariser gets
-**zero tools**. Four traps, all measured 2026-11-22:
+**zero tools**. Four traps, measured 2026-11-22 and 11-24:
 
 - `--allowedTools` **pre-approves, it does not limit**. `--tools ""` removes
   built-ins; MCP tools and connectors have to be removed separately.
@@ -24,8 +24,10 @@ run's final message, which the DAEMON validates and writes. The summariser gets
   summariser's deny list into its allow list, shell included.
 - **`@path` in a prompt attaches that file with no tool call.** Every run that
   carries other people's text needs `env=_run_env()`.
-- The seven hold only if the user has no other MCP server: `dontAsk` honours
-  their allow rules. Not closed; see `SECURITY.md`, as is what else remains.
+- **The user's own settings leak in** unless `--setting-sources local`: their
+  allow rules pre-approve other servers' tools, and `dontAsk` runs them. Not
+  `""` or `project`: both drop the local workspace-mcp registration too, and
+  the run starts with no Gmail and no Calendar.
 
 Assert on argv or the real CLI, never only on the lists that build them.
 
@@ -92,6 +94,11 @@ The answer schema still **rejects** `chat`/`recipient`/`to`/`send`/`live`/`draft
   afterwards — and issues the redraft under a NEW id. Ids are never reused: one
   id maps to one exact body for ever, which is what makes `OK #XXX`
   unambiguous when an old draft is still visible above it in the chat.
+- **A redraft answers the same message, and carries it.** `pending_drafts`
+  exposes `quoted` and `_queue_revision` puts it in the new item's messages.
+  Without it the redraft had `quoted=""`, which `deliver` reads as nothing to
+  check: every EDIT skipped the edited-message guard, and the model revised a
+  reply without seeing the question. An entry with no `quoted` is refused.
 - The revision count lives on the Draft and is carried through
   `propose`, or `MAX_REVISIONS` is unreachable and an edit loop is unbounded.
 - **A command never vanishes silently.** An EDIT is acknowledged the moment it
@@ -171,6 +178,19 @@ The answer schema still **rejects** `chat`/`recipient`/`to`/`send`/`live`/`draft
   And appearing is not sending, so (3) the acknowledgement above must be
   waited for. Each check was added after the previous one was believed
   sufficient; assume a fourth is missing rather than that this is finished.
+  The fourth was found 2026-11-24: (4) only a message that was not already in
+  view counts. The match is on 60 fingerprint characters, so the same warning
+  posted twice matched the FIRST copy and a note that never posted counted as
+  delivered.
+- **Replies to contacts get the same checks** (`agent._confirm_sent`), since
+  2026-11-24; before that an empty composer was reported as "sent". Past the
+  click nothing is retried, because the journal already counts the attempt as
+  sent: an unconfirmed reply is announced as "may NOT have arrived", never as
+  "not sent".
+- **A failing daemon says so.** After `TICK_ERROR_NOTIFY_AFTER` (15) failed
+  ticks in a row, a desktop notice, repeated hourly; once the page loads, one
+  self-chat note with the span. 2026-11-18 to 11-20 was 1249 failed ticks,
+  two days, in silence. `tick_errors.json` holds the count.
 - **Read-backs compare fingerprints, not raw text.** WhatsApp renders emoji as
   `<img>` and `inner_text` drops them: a note posted as `📋 GROUP DIGEST 13:16`
   reads back as `GROUP DIGEST 13:16`. Matching raw text declared every digest
@@ -218,8 +238,9 @@ uv run wa-agent list|allow|deny # allowlist (--mode reply|summarize)
 uv run wa-agent unread|chats|pending|drop|read|digest-catchup|reauth
 uv run wa-agent propose|poll|send [--live]
 uv run wa-agent tick            # one unattended cycle (the daemon runs this)
-uv run pytest                   # 752 tests; -m "not browser" for the fast ones
-uv run pytest tests/test_prompt_mentions.py  # after EVERY Claude Code update
+uv run pytest                   # 774 tests; -m "not browser" for the fast ones
+uv run pytest tests/test_prompt_mentions.py tests/test_settings_isolation.py
+                                # ^ after EVERY Claude Code update
 ```
 
 Self-chat commands: `OK #XXX`, `NO #XXX`, `EDIT #XXX: …`, `GROUPSUM`.

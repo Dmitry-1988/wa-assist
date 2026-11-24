@@ -40,6 +40,12 @@ The summariser now gets `--tools "" --strict-mcp-config`. The drafter gets
 `--tools ""`, has connectors and unused server tools removed, and runs in
 `dontAsk`. Both set `CLAUDE_CODE_DISABLE_ATTACHMENTS=1`.
 
+**Follow-up, 2026-11-24.** The drafter also loaded your own Claude settings
+and MCP servers, so any tool your allow rules pre-approved could run in it. It
+now gets `--setting-sources local`, which loads only the scope where
+workspace-mcp is registered. `wa-agent reauth`'s two runs are shut in the
+same way, with `sleep` as the helper's only command.
+
 **If you ran an earlier revision**, updating does not undo past access. Claude
 Code's transcripts under `~/.claude/projects/` show tool calls and attached
 files, but old ones are deleted, so a clean look is not proof. If in doubt, log
@@ -97,7 +103,9 @@ being rediscovered in production:
   also gets no MCP servers
 - a message cannot attach a file: `tests/test_prompt_mentions.py` runs the real
   CLI. The variable it relies on is undocumented, so **run it after every Claude
-  Code update**. It skips without the CLI, as in CI
+  Code update**, with `tests/test_settings_isolation.py`, which checks that
+  your own MCP servers and allow rules stay out. Both skip without the CLI, as
+  in CI
 - the answer is parsed from the run's final message, never read back from a
   file the run could have written
 - a caveat is never consent — `OK #X but shorter` refuses to send, and a later
@@ -107,9 +115,11 @@ being rediscovered in production:
 - a send is journalled immediately before the click, so a crash cannot produce
   a second delivery
 - nothing is marked seen until it has actually been delivered — a note is
-  confirmed by reading it back, and a failed digest keeps its queue item and
-  its watermarks (known gap: an older note with the same first 60 characters
-  can satisfy that check)
+  confirmed by reading back a message that was not there before, and a failed
+  digest keeps its queue item and its watermarks
+- a reply counts as sent only once WhatsApp acknowledges it; past the click it
+  is never retried, and an unconfirmed one is reported as uncertain
+- an `EDIT` redraft is checked against the same message as the original
 
 The `--live` flag is honoured only immediately after a poll returned `approve`
 for that exact draft id, and `propose`/`deliver` refuse any chat that is not in
@@ -124,14 +134,12 @@ conflict refuses the send.
 - **The drafter's server writes files.** Downloading an attachment, or a message
   with `full=True`, saves it under `~/.workspace-mcp/attachments/`. The model
   does not choose the directory and has no tool to read it back.
-- **Your own Claude settings can widen the drafter.** It sees other MCP servers
-  you configured, and `dontAsk` runs any of their tools your allow rules permit.
-  Do not combine such rules with this project.
 - **Both runs load Claude's project context**, including `CLAUDE.md` and
-  auto-memory, so its contents could appear in a draft or digest.
-- **`wa-agent reauth` and the manual checks in GOOGLE_SETUP are not isolated.**
-  They run only when you start them, but keep Claude's default tools and can
-  read calendar text other people wrote.
+  auto-memory, so its contents could appear in a draft or digest. Kept on
+  purpose: the memory holds how names are spelt in replies.
+- **The manual `claude -p` checks in GOOGLE_SETUP are not isolated.** They run
+  only when you type them, but keep Claude's default tools and can read
+  calendar text other people wrote.
 
 ## Handling of secrets
 
