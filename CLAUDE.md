@@ -198,7 +198,10 @@ The answer schema still **rejects** `chat`/`recipient`/`to`/`send`/`live`/`draft
 - **A failing daemon says so.** After `TICK_ERROR_NOTIFY_AFTER` (15) failed
   ticks in a row, a desktop notice, repeated hourly; once the page loads, one
   self-chat note with the span. 2026-11-18 to 11-20 was 1249 failed ticks,
-  two days, in silence. `tick_errors.json` holds the count.
+  two days, in silence. `tick_errors.json` holds the count. Those long runs
+  were no internet connection, so every tick first sends one HTTPS request to
+  web.whatsapp.com and, without an answer, logs `offline` and stops before
+  launching Chromium. The suite assumes online (`conftest.assume_online`).
 - **Read-backs compare fingerprints, not raw text.** WhatsApp renders emoji as
   `<img>` and `inner_text` drops them: a note posted as `📋 GROUP DIGEST 13:16`
   reads back as `GROUP DIGEST 13:16`. Matching raw text declared every digest
@@ -248,7 +251,7 @@ uv run wa-agent list|allow|deny # allowlist (--mode reply|summarize)
 uv run wa-agent unread|chats|pending|drop|read|digest-catchup|reauth
 uv run wa-agent propose|poll|send [--live]
 uv run wa-agent tick            # one unattended cycle (the daemon runs this)
-uv run pytest                   # 732 tests; -m "not browser" for the fast ones
+uv run pytest                   # 737 tests; -m "not browser" for the fast ones
 uv run pytest tests/test_prompt_mentions.py tests/test_settings_isolation.py
                                 # ^ after EVERY Claude Code update (CI: weekly)
 ```

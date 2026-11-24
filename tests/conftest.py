@@ -44,6 +44,14 @@ def pytest_addoption(parser):
     )
 
 
+@pytest.fixture(autouse=True)
+def assume_online(monkeypatch):
+    """Every tick first checks web.whatsapp.com is reachable. The suite must
+    not depend on the network, so it is assumed reachable; test_offline.py
+    exercises the real check against a faked connection."""
+    monkeypatch.setattr("wa_session.tick._offline_reason", lambda: "")
+
+
 @pytest.fixture
 def config(tmp_path) -> Config:
     return Config(

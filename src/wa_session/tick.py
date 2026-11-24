@@ -110,6 +110,16 @@ def run_tick(config: Config | None = None) -> dict:
     config = config or load_config()
     result: dict = {"at": datetime.now(timezone.utc).isoformat(), "actions": []}
 
+    # The long outages were this Mac having no internet. Without this check
+    # each such tick launched Chromium and waited 30s for `Page.goto` to time
+    # out. It still counts as a failed tick, so the desktop alarm still fires.
+    offline = _offline_reason()
+    if offline:
+        result["offline"] = offline
+        result["diag"] = {"https_error": offline}
+        _record_tick_error(config, result)
+        return result
+
     lock = agent_dir(config) / "profile.lock"
     try:
         # PHASE 1 -- everything that needs WhatsApp, under the profile lock.
@@ -178,25 +188,35 @@ def _local_time(iso: str) -> str:
         return "?"
 
 
-def _diagnose_load_failure(config: Config) -> dict:
-    """What a failed page load can still tell us, logged as `diag`.
-
-    The cause of the long `Page.goto` outages is not known, and by the time
-    anyone looks the evidence is gone. One plain HTTPS request from this Mac
-    separates "the network or WhatsApp is down" from "the browser is stuck",
-    and the free disk space rules the third suspect in or out.
-    """
+def _probe_whatsapp(timeout_s: float = 8.0) -> dict:
+    """One plain HTTPS request to web.whatsapp.com. Any HTTP answer is "up"."""
     out: dict = {}
     started = time.monotonic()
     try:
         request = urllib.request.Request(WHATSAPP_URL, method="HEAD")
-        with urllib.request.urlopen(request, timeout=8) as response:
+        with urllib.request.urlopen(request, timeout=timeout_s) as response:
             out["https_status"] = response.status
     except HTTPError as exc:
         out["https_status"] = exc.code
     except Exception as exc:
         out["https_error"] = f"{type(exc).__name__}: {exc}"[:120]
     out["https_s"] = round(time.monotonic() - started, 2)
+    return out
+
+
+def _offline_reason() -> str:
+    """Why web.whatsapp.com cannot be reached from here, or "" if it can."""
+    return _probe_whatsapp().get("https_error", "")
+
+
+def _diagnose_load_failure(config: Config) -> dict:
+    """What a failed page load can still tell us, logged as `diag`.
+
+    The page failed although the pre-tick probe got through, so the network
+    is not the obvious suspect. Probe again -- it may have dropped since --
+    and record the free disk space.
+    """
+    out = _probe_whatsapp()
     try:
         out["disk_free_mb"] = shutil.disk_usage(config.profile_dir.parent).free // 2**20
     except OSError:
@@ -210,7 +230,8 @@ def _record_tick_error(config: Config, result: dict) -> None:
         state = _load_tick_errors(config)
         state["count"] = int(state.get("count", 0)) + 1
         state.setdefault("first_at", result["at"])
-        state["last_error"] = str(result.get("error", "")).splitlines()[0][:120]
+        reason = result.get("error") or f"offline: {result.get('offline', '')}"
+        state["last_error"] = str(reason).splitlines()[0][:120]
         diag = result.get("diag") or {}
         if "https_error" in diag:
             network = " web.whatsapp.com is unreachable from this Mac."

@@ -156,7 +156,7 @@ half an hour — the entries looked merely idle.
 | `edit_refused` | the 5-revision cap was reached, or the draft predates 2026-11-24 and its original message was not kept | a new message in that chat starts a fresh draft |
 | `sent: {ok: false}` | a pre-send check refused; the self-chat says why | usually an edited source message |
 | `sent: {ok: false, clicked: true}` | send was clicked but WhatsApp never acknowledged it; it may or may not have arrived | look in the chat; it is never retried |
-| `desktop_notice: tick_errors` | 15+ ticks in a row failed; repeats hourly while it lasts | read `error`; see [timeouts](#pagegoto-timeouts-come-in-bursts) |
+| `desktop_notice: tick_errors` | 15+ ticks in a row failed; repeats hourly while it lasts | read `error` or `offline`; see [timeouts](#pagegoto-timeouts-come-in-bursts) |
 | `session_overdue_hours` | past the rotation policy | `uv run wa-login --reset` |
 
 ### Things that are usually fine
@@ -165,6 +165,7 @@ half an hour — the entries looked merely idle.
 |---|---|
 | `skipped: profile in use by another process` | you were running `wa-login` or a manual command |
 | `skipped: already being drafted` | a previous tick's LLM run is still going |
+| `offline` | this Mac could not reach web.whatsapp.com, so the tick stopped before starting the browser; it counts toward the alarm |
 | `post_deferred` | the profile was busy; it posts next tick |
 
 ### Failures worth investigating
@@ -328,13 +329,14 @@ reached the user. Now 15 failed ticks in a row (30 minutes) raise a desktop
 notice, repeated hourly, and the first tick that loads the page posts one
 self-chat note with the span.
 
-The cause is not established. The network and web.whatsapp.com answered
-normally right after the 11-24 run ended by itself. Candidates are WhatsApp
-throttling repeated loads, a network drop and the machine sleeping. Every
-failed load now logs `diag`: one plain HTTPS request to web.whatsapp.com
-(`https_status`, or `https_error` if unreachable) and the free disk space. A
-status means the network is fine and the browser is what fails; the desktop
-notice says which.
+**The cause of the long runs was this Mac having no internet connection**
+(the user's account; it fits both runs ending by themselves). Every tick now
+sends one plain HTTPS request to web.whatsapp.com before starting the
+browser. If it gets no answer the tick logs `offline` and stops, instead of
+launching Chromium to wait out a 30s timeout, and still counts toward the
+alarm. A page load that fails although that request got through logs `diag`
+(the request again, and the free disk space): that one is the browser, not
+the network, and the desktop notice says which.
 
 These are current behaviour, not bugs with a fix pending. They are listed so a
 surprise is a recognised one.
