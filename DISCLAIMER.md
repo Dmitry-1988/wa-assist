@@ -42,6 +42,16 @@ the drafter can read your mail and calendar:
 [docs/GOOGLE_SETUP.md](docs/GOOGLE_SETUP.md). If that is more than you want to
 do, this is the point to stop.
 
+**And it is not only setup — expect to re-authorise about weekly, for ever.**
+`gmail.readonly` is a restricted scope, so Google expires the refresh token of
+an unverified app after roughly seven days. Measured twice on this install,
+6d 19h 35m and 6d 20h 14m, and publishing the consent screen did not prevent
+it; verification would, and means a security assessment that is not
+proportionate for one user. It is one command and one click —
+`uv run wa-agent reauth` — but it is a chore that does not go away. Until you
+run it the daemon refuses to draft anything, keeps the messages queued, and
+says so in your self-chat.
+
 ## 4. Your messages are sent to Anthropic
 
 Every message in a chat you allowlist is sent to Claude to draft a reply, and

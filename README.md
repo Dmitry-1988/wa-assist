@@ -393,7 +393,7 @@ privilege-escalation finding.
 
 ## Notes on WhatsApp Web
 
-Verified against the live site, most recently on 2026-09-05:
+Verified against the live site, most recently on 2026-09-06:
 
 - **The message list is virtualised, at both ends.** Reopening a chat can
   render one row out of nineteen, so reading a conversation means scrolling.

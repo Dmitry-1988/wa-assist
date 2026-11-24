@@ -607,13 +607,14 @@ first such tool result and logged as
 To fix it, re-run the consent flow:
 
 ```bash
-rm -rf ~/.google_workspace_mcp/credentials
+uv run wa-agent reauth
 ```
 
-then start any interactive Claude session in this directory and call a
-calendar tool once — it will print an authorisation URL to open. Until that is
-done, replies stay queued and nothing is drafted, which is the intended
-behaviour.
+It checks whether access already works first, so it is safe to run on a guess,
+and it verifies Calendar **and** Gmail at the end rather than trusting the
+consent. If it reports access is fine and the next tick still refuses, pass
+`--force` to consent again anyway. Until consent is renewed, replies stay
+queued and nothing is drafted, which is the intended behaviour.
 
 ### The daemon is running but doing nothing
 
